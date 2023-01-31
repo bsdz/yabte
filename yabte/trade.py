@@ -1,6 +1,6 @@
-from decimal import Decimal
 import logging
 from dataclasses import dataclass
+from decimal import Decimal
 
 import pandas as pd
 

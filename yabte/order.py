@@ -1,14 +1,13 @@
-from typing import Dict, Optional, Tuple, List
-from decimal import Decimal
 import logging
-from enum import Enum
 from dataclasses import dataclass, field
+from decimal import Decimal
+from enum import Enum
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
 from ._helpers import ensure_decimal, ensure_enum
-
-from .asset import AssetName, Asset
+from .asset import Asset, AssetName
 from .book import Book
 from .trade import Trade
 

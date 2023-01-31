@@ -1,14 +1,14 @@
-from typing import List, Dict, Optional, Any, Type
-from copy import deepcopy
 import logging
-from collections import deque, defaultdict
-from itertools import product
+from collections import defaultdict, deque
+from copy import deepcopy
 from dataclasses import dataclass, field
+from itertools import product
+from typing import Any, Dict, List, Optional, Type
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
-from .asset import AssetName, Asset
+from .asset import Asset, AssetName
 from .book import Book, BookMandate
 from .order import Order, OrderStatus
 

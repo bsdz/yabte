@@ -1,9 +1,9 @@
-from typing import List, Dict
-from decimal import Decimal
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
+from decimal import Decimal
 from itertools import groupby
+from typing import Dict, List
 
 from .asset import AssetName
 from .trade import Trade
