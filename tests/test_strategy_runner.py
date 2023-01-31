@@ -100,19 +100,19 @@ class SpreadStrat1(Strategy):
 class StrategyRunnerTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.asset_meta = {"GOOG": {"denom": "USD"}, "MSFT": {"denom": "USD"}}
+        asset_meta = {}
+        dfs = []
+        for csv_pth in (data_dir / "nasdaq").glob("*.csv"):
+            name = csv_pth.stem
+            asset_meta[name] = {"denom": "USD"}
+            df = pd.read_csv(csv_pth, index_col=0, parse_dates=[0])
+            df.columns = pd.MultiIndex.from_tuples(
+                [(name, f) for f in df.columns]
+            )
+            dfs.append(df)
 
-        df_goog = pd.read_csv(data_dir / "GOOG.csv", index_col=0, parse_dates=[0])
-        df_goog.columns = pd.MultiIndex.from_tuples(
-            [("GOOG", f) for f in df_goog.columns]
-        )
-
-        df_msft = pd.read_csv(data_dir / "MSFT.csv", index_col=0, parse_dates=[0])
-        df_msft.columns = pd.MultiIndex.from_tuples(
-            [("MSFT", f) for f in df_msft.columns]
-        )
-
-        cls.df_combined = pd.concat([df_goog, df_msft], axis=1)
+        cls.asset_meta = asset_meta
+        cls.df_combined = pd.concat(dfs, axis=1)
 
     def test_smoke(self):
         sr = StrategyRunner(
