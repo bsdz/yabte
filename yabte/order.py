@@ -106,15 +106,15 @@ class Order(OrderBase):
 
 
 class PositionalOrderCheckType(Enum):
-    UNEQUAL = 1
-    NONZERO = 2
+    POS_TQ_DIFFER = 1
+    ZERO_POS = 2
 
 
 @dataclass(kw_only=True)
 class PositionalOrder(Order):
     """Closes out existing positions, ensures current position is `quantity`"""
 
-    check_type: PositionalOrderCheckType = PositionalOrderCheckType.UNEQUAL
+    check_type: PositionalOrderCheckType = PositionalOrderCheckType.POS_TQ_DIFFER
 
     def __post_init__(self):
         super().__post_init__()
@@ -130,9 +130,9 @@ class PositionalOrder(Order):
 
         current_position = self.book.positions[self.asset_name]
 
-        if self.check_type == PositionalOrderCheckType.UNEQUAL:
+        if self.check_type == PositionalOrderCheckType.POS_TQ_DIFFER:
             needs_trades = current_position != trade_quantity
-        elif self.check_type == PositionalOrderCheckType.NONZERO:
+        elif self.check_type == PositionalOrderCheckType.ZERO_POS:
             needs_trades = current_position == 0
         else:
             raise RuntimeError(f"Unexpected check type {self.check_type}")
@@ -196,10 +196,11 @@ class BasketOrder(OrderBase):
             quantities = [k * w for w in self.weights]
         elif self.size_type == OrderSizeType.BOOK_PERCENT:
             assert self.book is not None  # to please mypy
-            tp_weighted = sum(w * p for w, p in zip(self.weights, trade_prices))
-            bk_notional = self.book.cash * self.size / 100
-            k = bk_notional / tp_weighted
-            quantities = [k * w for w in self.weights]
+            # TODO: size is ignored, perhaps use a scaling factor?
+            # NOTE: we could use self.book.mtm but would be from previous day
+            book_mtm = sum([self.book.positions.get(a.name, 0)*tp for a, tp in zip(assets, trade_prices)])
+            book_value = self.book.cash + book_mtm
+            quantities = [book_value * w / 100 / tp for w, tp in zip(self.weights, trade_prices)]
         else:
             raise RuntimeError("Unsupported size type")
 
@@ -214,7 +215,7 @@ class BasketOrder(OrderBase):
         if not self.book:
             raise RuntimeError("Cannot apply order without book")
 
-        trade_quantities, trade_prices = self._calc_quantity_price(day_data, asset_map)
+        trade_quantity_prices = self._calc_quantity_price(day_data, asset_map)
 
         trades = [
             Trade(
@@ -223,8 +224,62 @@ class BasketOrder(OrderBase):
                 quantity=tq,
                 price=tp,
             )
-            for an, tq, tp in zip(self.asset_names, trade_quantities, trade_prices)
+            for an, (tq, tp) in zip(self.asset_names, trade_quantity_prices)
         ]
+
+        if self.book.test_trades(trades):
+            self.book.add_trades(trades)
+            self.status = OrderStatus.COMPLETE
+        else:
+            self.status = OrderStatus.MANDATE_FAILED
+
+
+@dataclass(kw_only=True)
+class PositionalBasketOrder(BasketOrder):
+    """Closes out existing positions, ensures current position is `quantity`"""
+
+    check_type: PositionalOrderCheckType = PositionalOrderCheckType.POS_TQ_DIFFER
+
+    def apply(
+        self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
+    ):
+        if not self.book:
+            raise RuntimeError("Cannot apply order without book")
+
+        trade_quantity_prices = self._calc_quantity_price(day_data, asset_map)
+
+        current_positions = [self.book.positions[an] for an in self.asset_names]
+
+        if self.check_type == PositionalOrderCheckType.POS_TQ_DIFFER:
+            needs_trades = any(p != tq for p, (tq, tp) in zip(current_positions, trade_quantity_prices))
+        elif self.check_type == PositionalOrderCheckType.ZERO_POS:
+            needs_trades = any(p == 0 for p in current_positions)
+        else:
+            raise RuntimeError(f"Unexpected check type {self.check_type}")
+
+        trades = []
+
+        if needs_trades:  # otherwise we're done
+            for asset_name, current_position, (trade_quantity, trade_price) in zip(self.asset_names, current_positions, trade_quantity_prices):
+                if current_position:
+                    # close out existing position
+                    trades.append(
+                        Trade(
+                            asset_name=asset_name,
+                            ts=ts,
+                            quantity=-current_position,
+                            price=trade_price,
+                        )
+                    )
+                if trade_quantity != 0:
+                    trades.append(
+                        Trade(
+                            asset_name=asset_name,
+                            ts=ts,
+                            quantity=trade_quantity,
+                            price=trade_price,
+                        )
+                    )
 
         if self.book.test_trades(trades):
             self.book.add_trades(trades)

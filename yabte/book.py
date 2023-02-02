@@ -5,6 +5,7 @@ from decimal import Decimal
 from itertools import groupby
 from typing import Dict, List
 
+from ._helpers import ensure_decimal
 from .asset import AssetName
 from .trade import Trade
 
@@ -30,6 +31,9 @@ class Book:
     )
     trades: List[Trade] = field(default_factory=list)
     cash: Decimal = Decimal(0)
+
+    def __post_init__(self):
+        self.cash = ensure_decimal(self.cash)
 
     def test_trades(self, trades: List[Trade]) -> bool:
         for asset_name, asset_trades in groupby(trades, lambda t: t.asset_name):

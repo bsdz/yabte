@@ -1,15 +1,16 @@
-from .asset import AssetName, Asset
-from .book import BookName, Book, BookMandate
+from .asset import Asset, AssetName
+from .book import Book, BookMandate, BookName
 from .order import (
+    BasketOrder,
     Order,
     OrderSizeType,
     OrderStatus,
-    BasketOrder,
+    PositionalBasketOrder,
     PositionalOrder,
     PositionalOrderCheckType,
 )
-from .trade import Trade
 from .strategy import Strategy, StrategyRunner
+from .trade import Trade
 
 __all__ = [
     "Asset",
@@ -21,6 +22,7 @@ __all__ = [
     "OrderSizeType",
     "OrderStatus",
     "BasketOrder",
+    "PositionalBasketOrder",
     "PositionalOrder",
     "PositionalOrderCheckType",
     "Trade",
