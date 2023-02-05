@@ -14,6 +14,9 @@ class ScaleAccessor:
 
 @pd.api.extensions.register_dataframe_accessor("price")
 class PriceAccessor:
+    # TODO add ledoit cov (via sklearn)
+    # http://www.ledoit.net/honey.pdf
+
     def __init__(self, pandas_obj):
         self._validate(pandas_obj)
         self._obj = pandas_obj

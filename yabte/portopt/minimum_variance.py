@@ -3,6 +3,7 @@ import numpy.linalg as la
 
 from .lagrangian import Lagrangian
 
+
 def minimum_variance(Sigma, mu, r):
     m = len(mu)
     ones = np.ones(m)
@@ -11,10 +12,10 @@ def minimum_variance(Sigma, mu, r):
     A = mu.T @ SigmaInv @ ones
     B = mu.T @ SigmaInv @ mu
     C = ones.T @ SigmaInv @ ones
-    D = B*C - A*A
-    l1 = (C*r - A)/D
-    l2 = (B - A*r)/D
-    return SigmaInv@(l1 * mu + l2 * ones)
+    D = B * C - A * A
+    l1 = (C * r - A) / D
+    l2 = (B - A * r) / D
+    return SigmaInv @ (l1 * mu + l2 * ones)
 
 
 def minimum_variance_numeric(Sigma, mu, r):
@@ -27,7 +28,7 @@ def minimum_variance_numeric(Sigma, mu, r):
             lambda x: r - x.T @ mu,
             lambda x: 1 - x.T @ ones,
         ],
-        x0=ones/m
+        x0=ones / m,
     )
     return L.fit()
 
@@ -40,11 +41,11 @@ def minimum_variance_numeric_slsqp(Sigma, mu, r):
 
     res = minimize(
         lambda x: x.T @ Sigma @ x / 2,
-        ones/m,
-        method='SLSQP',
+        ones / m,
+        method="SLSQP",
         constraints=(
-            {'type': 'eq', 'fun': lambda x:  r - x.T @ mu, 'jac': lambda x: -mu.values},
-            {'type': 'eq', 'fun': lambda x:  1 - x.T @ ones, 'jac': lambda x: -ones},
+            {"type": "eq", "fun": lambda x: r - x.T @ mu, "jac": lambda x: -mu.values},
+            {"type": "eq", "fun": lambda x: 1 - x.T @ ones, "jac": lambda x: -ones},
         ),
         tol=1e-15,
     )
