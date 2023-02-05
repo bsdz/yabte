@@ -12,6 +12,7 @@ from yabte.portopt.minimum_variance import (
     minimum_variance_numeric,
     minimum_variance_numeric_slsqp,
 )
+from yabte.portopt.hierarchical_risk_parity import hrp
 
 
 class LagrangianTestCase(unittest.TestCase):
@@ -60,11 +61,28 @@ class LagrangianTestCase(unittest.TestCase):
         mu = self.closes.price.capm_returns()
         r = 0.1
 
-        mv1 = minimum_variance(Sigma, mu, r)
-        mv2 = minimum_variance_numeric(Sigma, mu, r)
-        mv3 = minimum_variance_numeric_slsqp(Sigma, mu, r)
+        w = minimum_variance(Sigma, mu, r)
+        wn = minimum_variance_numeric(Sigma, mu, r)
+        wn2 = minimum_variance_numeric_slsqp(Sigma, mu, r)
 
-        x = 1
+        self.numpyAssertAllclose(w, wn)
+        # slsqp not as numerically accurate as other two methods
+        self.numpyAssertAllclose(w, wn2, rtol=1e-06)
+
+
+class HRPTestCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.asset_meta, cls.df_combined = generate_nasdaq_dataset()
+        cls.closes = cls.df_combined.loc[:, (slice(None), "Close")].droplevel(axis=1, level=1)
+
+    def test_hrp(self):
+        cov = self.closes.price.log_returns.cov()
+        corr = self.closes.price.log_returns.corr()
+
+        w = hrp(corr, cov)
+
+        self.numpyAssertAllclose(w.sum(), 1)
 
 
 if __name__ == "__main__":
