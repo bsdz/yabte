@@ -13,6 +13,7 @@ from yabte.portopt.minimum_variance import (
     minimum_variance_numeric_slsqp,
 )
 from yabte.portopt.hierarchical_risk_parity import hrp
+from yabte.portopt.inverse_volatility import inverse_volatility
 
 
 class PortOptTestCase(unittest.TestCase):
@@ -71,10 +72,17 @@ class PortOptTestCase(unittest.TestCase):
 
 
     def test_hrp(self):
-        corr = self.returns.corr()
+        R = self.returns.corr()
         sigma = self.returns.std()
 
-        w = hrp(corr, sigma)
+        w = hrp(R, sigma)
+
+        self.numpyAssertAllclose(w.sum(), 1)
+    
+    def test_ivp(self):
+        Sigma = self.returns.cov()
+
+        w = inverse_volatility(Sigma)
 
         self.numpyAssertAllclose(w.sum(), 1)
 
