@@ -15,15 +15,15 @@ from yabte.portopt.minimum_variance import (
 from yabte.portopt.hierarchical_risk_parity import hrp
 
 
-class LagrangianTestCase(unittest.TestCase):
+class PortOptTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.asset_meta, cls.df_combined = generate_nasdaq_dataset()
         cls.closes = cls.df_combined.loc[:, (slice(None), "Close")].droplevel(axis=1, level=1)
- 
+        cls.returns = cls.closes.price.log_returns
 
     def test_lagrangian(self):
-        Sigma = self.closes.price.log_returns.cov()
+        Sigma = self.returns.cov()
         mu = self.closes.price.capm_returns()
         r = 0.1
 
@@ -57,7 +57,7 @@ class LagrangianTestCase(unittest.TestCase):
         self.numpyAssertAllclose(wn, w)
 
     def test_min_var(self):
-        Sigma = self.closes.price.log_returns.cov()
+        Sigma = self.returns.cov()
         mu = self.closes.price.capm_returns()
         r = 0.1
 
@@ -70,17 +70,11 @@ class LagrangianTestCase(unittest.TestCase):
         self.numpyAssertAllclose(w, wn2, rtol=1e-06)
 
 
-class HRPTestCase(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.asset_meta, cls.df_combined = generate_nasdaq_dataset()
-        cls.closes = cls.df_combined.loc[:, (slice(None), "Close")].droplevel(axis=1, level=1)
-
     def test_hrp(self):
-        cov = self.closes.price.log_returns.cov()
-        corr = self.closes.price.log_returns.corr()
+        corr = self.returns.corr()
+        sigma = self.returns.std()
 
-        w = hrp(corr, cov)
+        w = hrp(corr, sigma)
 
         self.numpyAssertAllclose(w.sum(), 1)
 

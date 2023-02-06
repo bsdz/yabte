@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from scipy.cluster.hierarchy import linkage, dendrogram, to_tree
+from scipy.cluster.hierarchy import linkage, to_tree
 
 
 # following 3 functions taken directly from paper
@@ -43,7 +43,9 @@ def _getRecBipart(cov, sortIx):
     return w
 
 
-def hrp(corr, cov):
+def hrp(corr, sigma):
+    cov = np.diag(sigma) @ corr @ np.diag(sigma)
+    cov.index, cov.columns = corr.index, corr.columns
     rho = corr.values
     D = np.sqrt((1 - rho)/2)
     I, J = np.triu_indices_from(D, 1)
