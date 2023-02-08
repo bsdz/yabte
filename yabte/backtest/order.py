@@ -13,6 +13,8 @@ from .trade import Trade
 
 logger = logging.getLogger(__name__)
 
+__all__ = ["Order", "PositionalOrder", "BasketOrder", "PositionalBasketOrder"]
+
 
 class OrderStatus(Enum):
     MANDATE_FAILED = 1
@@ -37,6 +39,10 @@ def _intraday_traded_price(asset_day_data) -> Decimal:
 
 @dataclass(kw_only=True)
 class OrderBase:
+    """Base class for all orders.
+
+    Every order has a `status` and a target `book`."""
+
     status: OrderStatus = OrderStatus.OPEN
     book: Optional[Book] = field(repr=False, default=None)
     # priority: Optional[int] = 0  # TODO
@@ -45,9 +51,22 @@ class OrderBase:
         # TODO: support being a BookName
         pass
 
+    def apply(
+        self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
+    ):
+        """Applys order to `self.book` for time `ts` using provided `day_data` and
+        dictionary of asset information `asset_map`.
+        """
+        raise NotImplementedError("The apply methods needs to be implemented.")
+
 
 @dataclass(kw_only=True)
 class Order(OrderBase):
+    """Simple order.
+
+    Request to trade `size` of `asset_name`. The `size`
+    can be a quantity, notional or book percent."""
+
     asset_name: AssetName
     size: Decimal
     size_type: OrderSizeType = OrderSizeType.QUANTITY
@@ -112,7 +131,8 @@ class PositionalOrderCheckType(Enum):
 
 @dataclass(kw_only=True)
 class PositionalOrder(Order):
-    """Closes out existing positions, ensures current position is `quantity`"""
+    """Ensures current position is `size` and will close out existing posiitons
+    to achieve this. To determine if a trade one can set `check_type`."""
 
     check_type: PositionalOrderCheckType = PositionalOrderCheckType.POS_TQ_DIFFER
 
@@ -169,6 +189,8 @@ class PositionalOrder(Order):
 
 @dataclass
 class BasketOrder(OrderBase):
+    """Combine multiple `asset_names` into a single order with `weights`."""
+
     asset_names: List[AssetName]
     weights: List[Decimal]
     size: Decimal
@@ -198,9 +220,16 @@ class BasketOrder(OrderBase):
             assert self.book is not None  # to please mypy
             # TODO: size is ignored, perhaps use a scaling factor?
             # NOTE: we could use self.book.mtm but would be from previous day
-            book_mtm = sum([self.book.positions.get(a.name, 0)*tp for a, tp in zip(assets, trade_prices)])
+            book_mtm = sum(
+                [
+                    self.book.positions.get(a.name, 0) * tp
+                    for a, tp in zip(assets, trade_prices)
+                ]
+            )
             book_value = self.book.cash + book_mtm
-            quantities = [book_value * w / 100 / tp for w, tp in zip(self.weights, trade_prices)]
+            quantities = [
+                book_value * w / 100 / tp for w, tp in zip(self.weights, trade_prices)
+            ]
         else:
             raise RuntimeError("Unsupported size type")
 
@@ -236,7 +265,8 @@ class BasketOrder(OrderBase):
 
 @dataclass(kw_only=True)
 class PositionalBasketOrder(BasketOrder):
-    """Closes out existing positions, ensures current position is `quantity`"""
+    """Similar to a `BasketOrder` but will close out exisiting positions
+    if they do not match requested weights."""
 
     check_type: PositionalOrderCheckType = PositionalOrderCheckType.POS_TQ_DIFFER
 
@@ -251,7 +281,9 @@ class PositionalBasketOrder(BasketOrder):
         current_positions = [self.book.positions[an] for an in self.asset_names]
 
         if self.check_type == PositionalOrderCheckType.POS_TQ_DIFFER:
-            needs_trades = any(p != tq for p, (tq, tp) in zip(current_positions, trade_quantity_prices))
+            needs_trades = any(
+                p != tq for p, (tq, tp) in zip(current_positions, trade_quantity_prices)
+            )
         elif self.check_type == PositionalOrderCheckType.ZERO_POS:
             needs_trades = any(p == 0 for p in current_positions)
         else:
@@ -260,7 +292,9 @@ class PositionalBasketOrder(BasketOrder):
         trades = []
 
         if needs_trades:  # otherwise we're done
-            for asset_name, current_position, (trade_quantity, trade_price) in zip(self.asset_names, current_positions, trade_quantity_prices):
+            for asset_name, current_position, (trade_quantity, trade_price) in zip(
+                self.asset_names, current_positions, trade_quantity_prices
+            ):
                 if current_position:
                     # close out existing position
                     trades.append(

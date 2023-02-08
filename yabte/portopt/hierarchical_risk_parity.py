@@ -1,11 +1,23 @@
+r"""Calculate portfolio weights with hierarchical risk parity. 
+
+That is to employ hierarchical tree clustering on the correlation distance
+matrix and quasi-diagonalisation followed by recursive bisection to determine
+the weights. See [LP] for further details.
+
+
+References
+----------
+.. [LP] López de Prado, M. (2016). Building Diversified Portfolios that
+    Outperform Out of Sample. The Journal of Portfolio Management, 42(4),
+    59–69. https://doi.org/10.3905/jpm.2016.42.4.059
+"""
+
 import pandas as pd
 import numpy as np
 from scipy.cluster.hierarchy import linkage, to_tree
 
 
-# following 3 functions taken directly from paper
-# López de Prado, M. (2016). Building Diversified Portfolios that Outperform Out of Sample. The Journal of Portfolio Management, 42(4), 59–69. https://doi.org/10.3905/jpm.2016.42.4.059
-
+# following 3 functions taken directly from paper [LP]
 
 def _getIVP(cov, **kargs):
     # Compute the inverse-variance portfolio
@@ -43,7 +55,9 @@ def _getRecBipart(cov, sortIx):
     return w
 
 
-def hrp(corr, sigma):
+def hrp(corr: pd.DataFrame, sigma: np.ndarray) -> np.ndarray:
+    """Calculate weights using hierarchical risk parity and
+    scipy's linkage/to_tree functions."""
     cov = np.diag(sigma) @ corr @ np.diag(sigma)
     cov.index, cov.columns = corr.index, corr.columns
     rho = corr.values

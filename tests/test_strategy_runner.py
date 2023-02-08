@@ -5,7 +5,7 @@ from decimal import Decimal
 import numpy as np
 import pandas as pd
 
-from yabte import (
+from yabte.backtest import (
     BasketOrder,
     Book,
     Order,
@@ -15,7 +15,7 @@ from yabte import (
     Strategy,
     StrategyRunner,
 )
-from yabte.utils import crossover
+from yabte.utilities.strategy_helpers import crossover
 
 from tests._helpers import generate_nasdaq_dataset
 
