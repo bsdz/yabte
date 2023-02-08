@@ -13,12 +13,14 @@ class UtilitiesTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.asset_meta, cls.df_combined = generate_nasdaq_dataset()
-        cls.closes = cls.df_combined.loc[:, (slice(None), "Close")].droplevel(axis=1, level=1)
-        cls.returns = cls.closes.price.log_returns
+        cls.closes = cls.df_combined.loc[:, (slice(None), "Close")].droplevel(
+            axis=1, level=1
+        )
+        cls.returns = cls.closes.prc.log_returns
 
     def test_lagrangian(self):
         Sigma = self.returns.cov()
-        mu = self.closes.price.capm_returns()
+        mu = self.closes.prc.capm_returns()
         r = 0.1
 
         # solve algebraically
@@ -28,10 +30,10 @@ class UtilitiesTestCase(unittest.TestCase):
         A = mu.T @ SigmaInv @ ones
         B = mu.T @ SigmaInv @ mu
         C = ones.T @ SigmaInv @ ones
-        D = B*C - A*A
-        l1 = (C*r - A)/D
-        l2 = (B - A*r)/D
-        w = SigmaInv@(l1 * mu + l2 * ones)
+        D = B * C - A * A
+        l1 = (C * r - A) / D
+        l2 = (B - A * r) / D
+        w = SigmaInv @ (l1 * mu + l2 * ones)
 
         # sanity checks
         self.numpyAssertAllclose(w.sum(), 1)
@@ -44,11 +46,12 @@ class UtilitiesTestCase(unittest.TestCase):
                 lambda x: r - x.T @ mu,
                 lambda x: 1 - x.T @ ones,
             ],
-            x0=np.ones(m)/m
+            x0=np.ones(m) / m,
         )
         wn = L.fit()
 
         self.numpyAssertAllclose(wn, w)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,7 @@ from decimal import Decimal
 import numpy as np
 import pandas as pd
 
+from tests._helpers import generate_nasdaq_dataset
 from yabte.backtest import (
     BasketOrder,
     Book,
@@ -16,8 +17,6 @@ from yabte.backtest import (
     StrategyRunner,
 )
 from yabte.utilities.strategy_helpers import crossover
-
-from tests._helpers import generate_nasdaq_dataset
 
 logger = logging.getLogger(__name__)
 

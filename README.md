@@ -10,11 +10,7 @@ There are some basic tests but use at your own peril. It's not production level 
 
 ## Core dependencies
 
-The core module uses pandas.
-
-## Other dependencies
-
-The portfolio optimisation module uses scipy.
+The core module uses pandas and scipy.
 
 ## Installation
 

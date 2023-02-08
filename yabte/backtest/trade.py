@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 class Trade:
     """A frozen record of the transaction for time `ts` and `asset_name`
     along with `quantity` and `price`."""
+
     ts: pd.Timestamp
     quantity: Decimal
     price: Decimal

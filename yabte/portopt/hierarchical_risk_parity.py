@@ -12,12 +12,12 @@ References
     59–69. https://doi.org/10.3905/jpm.2016.42.4.059
 """
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 from scipy.cluster.hierarchy import linkage, to_tree
 
-
 # following 3 functions taken directly from paper [LP]
+
 
 def _getIVP(cov, **kargs):
     # Compute the inverse-variance portfolio
@@ -32,6 +32,7 @@ def _getClusterVar(cov, cItems):
     w_ = _getIVP(cov_).reshape(-1, 1)
     cVar = np.dot(np.dot(w_.T, cov_), w_)[0, 0]
     return cVar
+
 
 def _getRecBipart(cov, sortIx):
     # Compute HRP alloc
@@ -61,9 +62,9 @@ def hrp(corr: pd.DataFrame, sigma: np.ndarray) -> np.ndarray:
     cov = np.diag(sigma) @ corr @ np.diag(sigma)
     cov.index, cov.columns = corr.index, corr.columns
     rho = corr.values
-    D = np.sqrt((1 - rho)/2)
+    D = np.sqrt((1 - rho) / 2)
     I, J = np.triu_indices_from(D, 1)
-    link = linkage(np.sqrt(np.sum((D[I] - D[J])**2, axis=1)))
+    link = linkage(np.sqrt(np.sum((D[I] - D[J]) ** 2, axis=1)))
     ix_sorted = to_tree(link, rd=False).pre_order()
     cols_sorted = corr.columns[ix_sorted]
     return _getRecBipart(cov, cols_sorted)

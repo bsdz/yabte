@@ -6,14 +6,14 @@ import numpy.linalg as la
 import tests._unittest_numpy_extensions  # noqa
 import yabte.utilities.pandas_extension  # noqa
 from tests._helpers import generate_nasdaq_dataset
-from yabte.utilities.lagrangian import Lagrangian
+from yabte.portopt.hierarchical_risk_parity import hrp
+from yabte.portopt.inverse_volatility import inverse_volatility
 from yabte.portopt.minimum_variance import (
     minimum_variance,
     minimum_variance_numeric,
     minimum_variance_numeric_slsqp,
 )
-from yabte.portopt.hierarchical_risk_parity import hrp
-from yabte.portopt.inverse_volatility import inverse_volatility
+from yabte.utilities.lagrangian import Lagrangian
 
 
 class PortOptTestCase(unittest.TestCase):
@@ -23,11 +23,11 @@ class PortOptTestCase(unittest.TestCase):
         cls.closes = cls.df_combined.loc[:, (slice(None), "Close")].droplevel(
             axis=1, level=1
         )
-        cls.returns = cls.closes.price.log_returns
+        cls.returns = cls.closes.prc.log_returns
 
     def test_min_var(self):
         Sigma = self.returns.cov()
-        mu = self.closes.price.capm_returns()
+        mu = self.closes.prc.capm_returns()
         r = 0.1
 
         w = minimum_variance(Sigma, mu, r)

@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
 import numpy as np
-from scipy.optimize import root, OptimizeResult
+from scipy.optimize import OptimizeResult, root
 from scipy.optimize._numdiff import approx_derivative
 
 

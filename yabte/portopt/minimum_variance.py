@@ -50,7 +50,9 @@ def minimum_variance_numeric(Sigma: np.ndarray, mu: np.ndarray, r: float) -> np.
     return L.fit()
 
 
-def minimum_variance_numeric_slsqp(Sigma: np.ndarray, mu: np.ndarray, r: float) -> np.ndarray:
+def minimum_variance_numeric_slsqp(
+    Sigma: np.ndarray, mu: np.ndarray, r: float
+) -> np.ndarray:
     """Calculate weights using Lagrangian multipliers and
     numeric solution (using scipy's minimize function)."""
     from scipy.optimize import minimize

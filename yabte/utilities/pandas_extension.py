@@ -1,8 +1,8 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 
-@pd.api.extensions.register_dataframe_accessor("scale")
+@pd.api.extensions.register_dataframe_accessor("scl")
 class ScaleAccessor:
     def __init__(self, pandas_obj):
         self._obj = pandas_obj
@@ -12,7 +12,7 @@ class ScaleAccessor:
         return (self._obj - self._obj.mean()) / self._obj.std()
 
 
-@pd.api.extensions.register_dataframe_accessor("price")
+@pd.api.extensions.register_dataframe_accessor("prc")
 class PriceAccessor:
     # TODO add ledoit cov (via sklearn)
     # http://www.ledoit.net/honey.pdf
@@ -57,7 +57,7 @@ class PriceAccessor:
 
     def null_blips(self, sd=5, sdd=7):
         df = self._obj
-        z = df.scale.standard
+        z = df.scl.standard
         zd = z.diff()
         # TODO support blips longer than 1 day?
         for col, series in df[z.abs() > sd].dropna(how="all").dropna(axis=1).items():

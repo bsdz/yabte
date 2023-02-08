@@ -5,22 +5,23 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python: Unittest",
+            "type": "python",
+            "request": "launch",
+            "module": "unittest",
+            "justMyCode": true
+        },
+        {
             "name": "Python: Current File",
             "type": "python",
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "env": {"PYTHONPATH": "."}
+            "env": {
+                "PYTHONPATH": "."
+            }
         },
-        {
-            "name": "Test Strat Runner",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/tests/test_strategy_runner.py",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "env": {"PYTHONPATH": "."}
-        }
+
     ]
 }
