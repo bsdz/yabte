@@ -1,8 +1,7 @@
-from typing import Any, Type
-from decimal import Decimal
 import logging
+from decimal import Decimal
 from enum import Enum
-
+from typing import Any, Type
 
 logger = logging.getLogger(__name__)
 

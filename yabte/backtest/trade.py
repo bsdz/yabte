@@ -1,6 +1,6 @@
-from decimal import Decimal
 import logging
 from dataclasses import dataclass
+from decimal import Decimal
 
 import pandas as pd
 
@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, kw_only=True)
 class Trade:
+    """A frozen record of the transaction for time `ts` and `asset_name`
+    along with `quantity` and `price`."""
     ts: pd.Timestamp
     quantity: Decimal
     price: Decimal

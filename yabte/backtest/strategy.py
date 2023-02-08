@@ -1,18 +1,20 @@
-from typing import List, Dict, Optional, Any, Type
-from copy import deepcopy
 import logging
-from collections import deque, defaultdict
-from itertools import product
+from collections import defaultdict, deque
+from copy import deepcopy
 from dataclasses import dataclass, field
+from itertools import product
+from typing import Any, Dict, List, Optional, Type
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
-from .asset import AssetName, Asset
+from .asset import Asset, AssetName
 from .book import Book, BookMandate
 from .order import Order, OrderStatus
 
 logger = logging.getLogger(__name__)
+
+__all__ = ["Strategy", "StrategyRunner"]
 
 
 class Orders(deque):
@@ -21,6 +23,8 @@ class Orders(deque):
 
 @dataclass(kw_only=True)
 class Strategy:
+    """Trading strategy base class."""
+
     orders: Orders
     params: pd.Series
     books: List[Book]  # TODO: wrap this to make read only
@@ -32,6 +36,7 @@ class Strategy:
 
     @property
     def ts(self):
+        """Stores the current timestamp."""
         return self._ts
 
     @ts.setter
@@ -42,6 +47,9 @@ class Strategy:
 
     @property
     def data(self) -> pd.DataFrame:
+        """Provides window of data available up to current
+        timestamp `self.ts` and masks out data not availble
+        at open (like high, low, close, volume)."""
         if not self.ts:
             return self._data
         else:
@@ -64,18 +72,31 @@ class Strategy:
         self._data = value
 
     def init(self):
-        # enhance data if needed
+        """Initialise internal variables & enhance data for strategy."""
         pass
 
     def on_open(self):
+        """Executed on open every day. Use `self.ts` to determine
+        current timestamp. Data available at this timestamp is
+        accessible from `self.data`."""
         pass
 
     def on_close(self):
+        """Executed on close every day. Use `self.ts` to determine
+        current timestamp. Data available at this timestamp is
+        accessible from `self.data`."""
         pass
 
 
 @dataclass(kw_only=True)
 class StrategyRunner:
+    """Encapsulates the execution of multiple strategies.
+
+    Orders are captured in `orders_processed` and `orders_unprocessed`.
+    `books` is a list of books and if none provided a single book is
+    created call 'PrimaryBook'. After execution summary book and trade
+    histories are captured in `book_history` and `trade_history`."""
+
     data: pd.DataFrame = field()
     asset_meta: Dict[AssetName, Dict[str, Any]]
     strats: List[Type[Strategy]]  # TODO: rename to strat_classes
@@ -117,6 +138,7 @@ class StrategyRunner:
             self.books = [Book(name="PrimaryBook", mandates=self.mandates)]
 
     def run(self):
+        """Execute each strategy through time."""
 
         # TODO: make available where necessary
         asset_map = {
