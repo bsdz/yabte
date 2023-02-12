@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Dict, List, Optional, Tuple, Callable, Any
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 

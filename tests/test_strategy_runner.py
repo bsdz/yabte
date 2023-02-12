@@ -11,11 +11,11 @@ from yabte.backtest import (
     Book,
     Order,
     OrderSizeType,
+    OrderStatus,
     PositionalBasketOrder,
     PositionalOrder,
     Strategy,
     StrategyRunner,
-    OrderStatus,
 )
 from yabte.utilities.strategy_helpers import crossover
 
