@@ -15,6 +15,7 @@ from yabte.backtest import (
     PositionalOrder,
     Strategy,
     StrategyRunner,
+    OrderStatus,
 )
 from yabte.utilities.strategy_helpers import crossover
 
@@ -228,6 +229,75 @@ class StrategyRunnerTestCase(unittest.TestCase):
         # 20 = 4 x ttttc
         self.assertEqual(len(sr.books[0].trades), 20)
         pass
+
+    def test_limit_order(self):
+        class TestLimitOrderStrat(Strategy):
+            def on_close(self):
+                def my_limit_func(tp):
+                    # if goes above 110 then cancel
+                    if tp > 110:
+                        return OrderStatus.CANCELLED
+                    # if drops below 90 then compelete order
+                    elif tp < 90:
+                        return None
+                    # otherwise leave open for another day
+                    return OrderStatus.OPEN
+
+                ix = self.data.index.get_loc(self.ts)
+                if ix == 0:
+                    self.orders.append(
+                        Order(asset_name="ACME", size=100, exec_cond=my_limit_func)
+                    )
+
+        for data_arr, op_status, ou_status in [
+            (
+                [
+                    [105, 105, 105, 105, 100],
+                    [115, 115, 115, 115, 100],
+                    [110, 110, 110, 110, 100],
+                ],
+                [OrderStatus.CANCELLED],
+                [],
+            ),
+            (
+                [
+                    [95, 95, 95, 95, 100],
+                    [100, 100, 100, 100, 100],
+                    [105, 105, 105, 105, 100],
+                ],
+                [],
+                [OrderStatus.OPEN],
+            ),
+            (
+                [
+                    [95, 95, 95, 95, 100],
+                    [100, 100, 100, 100, 100],
+                    [85, 85, 85, 85, 100],
+                ],
+                [OrderStatus.COMPLETE],
+                [],
+            ),
+        ]:
+            with self.subTest():
+                data = pd.DataFrame(
+                    data_arr,
+                    columns=pd.MultiIndex.from_product(
+                        [["ACME"], ["Open", "High", "Low", "Close", "Volume"]]
+                    ),
+                    index=pd.date_range(start="20180102", periods=len(data_arr), freq="B"),
+                )
+
+                sr = StrategyRunner(
+                    data=data,
+                    asset_meta={"ACME": {"denom": "USD"}},
+                    strats=[TestLimitOrderStrat],
+                    # strat_params={"size_type": OrderSizeType.QUANTITY},
+                )
+                sr.run()
+
+                self.assertListEqual(op_status, [o.status for o in sr.orders_processed])
+                self.assertListEqual(ou_status, [o.status for o in sr.orders_unprocessed])
+
 
 
 if __name__ == "__main__":

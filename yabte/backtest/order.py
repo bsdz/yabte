@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Callable, Any
 
 import pandas as pd
 
@@ -62,17 +62,24 @@ class OrderBase:
 
 @dataclass(kw_only=True)
 class Order(OrderBase):
-    """Simple order.
+    """Simple market order.
 
     Request to trade `size` of `asset_name`. The `size`
-    can be a quantity, notional or book percent."""
+    can be a quantity, notional or book percent.
+    
+    If a `exec_cond` is set, it is called with the calculated
+    trade price before the trade is executed. If it returns `None`,
+    the trade is executed as normal. It can return `OrderStatus.CANCELLED`
+    to indicate the trade should be cancelled or `OrderStatus.OPEN` to
+    indicate the trade should not be executed in the current timestep
+    and processed in the following timestep."""
 
     asset_name: AssetName
     size: Decimal
     size_type: OrderSizeType = OrderSizeType.QUANTITY
+    exec_cond: Optional[Callable[[Decimal], Optional[OrderStatus]]] = None
+
     # TODO: support below types of order
-    # limit_price: Optional[Decimal] = None
-    # stop_price: Optional[Decimal] = None
     # stop_loss_price: Optional[Decimal] = None
     # take_profit_price: Optional[Decimal] = None
 
@@ -107,6 +114,12 @@ class Order(OrderBase):
             raise RuntimeError("Cannot apply order without book")
 
         trade_quantity, trade_price = self._calc_quantity_price(day_data, asset_map)
+
+        if self.exec_cond is not None:
+            new_status = self.exec_cond(trade_price)
+            if new_status is not None:
+                self.status = new_status
+                return
 
         trades = [
             Trade(

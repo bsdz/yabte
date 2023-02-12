@@ -88,6 +88,33 @@ class Strategy:
         pass
 
 
+def _check_data(df):
+    """check data structure correct"""
+
+    if not isinstance(df.index, pd.DatetimeIndex):
+        raise ValueError("data index must be a datetimeindex")
+    if not df.index.is_monotonic_increasing:
+        raise ValueError("data needs to have increasing index")
+
+    # colum level 1 = asset, level 2 = field
+    if not isinstance(df.columns, pd.MultiIndex):
+        raise ValueError("data columns must be multindex asset/field")
+    if len(df.columns.levels) != 2:
+        raise ValueError("data columns multiindex must have 2 levels")
+
+    # check each asset has required fields
+    required_fields = ["High", "Low", "Open", "Close", "Volume"]
+    asset_names = df.columns.levels[0]
+    expected_cols = pd.MultiIndex.from_tuples(product(asset_names, required_fields))
+    missing_cols = expected_cols.difference(df.columns, sort=None)
+    if len(missing_cols):
+        raise ValueError(f"data columns multiindex requires fields HLOCV and missing {missing_cols.tolist()}")
+
+    # TODO: check low <= open, high, close & high >= open, low, close
+    # TODO: check vol >= 0
+    # TODO: check assets match asset_meta
+
+
 @dataclass(kw_only=True)
 class StrategyRunner:
     """Encapsulates the execution of multiple strategies.
@@ -112,26 +139,7 @@ class StrategyRunner:
     trade_history: Optional[pd.DataFrame] = None
 
     def __post_init__(self):
-        # check data structure correct
-        df = self.data
-        if not isinstance(df.index, pd.DatetimeIndex):
-            raise ValueError("data index must be a datetimeindex")
-        if not df.index.is_monotonic_increasing:
-            raise ValueError("data needs to have increasing index")
-        # colum level 1 = asset, level 2 = field
-        if not isinstance(df.columns, pd.MultiIndex):
-            raise ValueError("data columns must be multindex asset/field")
-        if len(df.columns.levels) != 2:
-            raise ValueError("data columns multiindex must have 2 levels")
-        required_fields = ["High", "Low", "Open", "Close", "Volume"]
-        # check each asset as required fields
-        if not np.all(
-            pd.MultiIndex.from_tuples(
-                product(df.columns.levels[0], required_fields)
-            ).isin(df.columns)
-        ):
-            raise ValueError("data columns multiindex requires fields HLOCV")
-        # TODO: check assets match asset_meta
+        _check_data(self.data)
 
         # set up books
         if not self.books:
@@ -185,6 +193,7 @@ class StrategyRunner:
             ]
 
             # process orders
+            orders_next_ts = []
             while self.orders_unprocessed:
                 order = self.orders_unprocessed.popleft()
 
@@ -194,9 +203,10 @@ class StrategyRunner:
                 order.apply(ts, day_data, asset_map)
 
                 if order.status == OrderStatus.OPEN:
-                    self.orders_unprocessed.append(order)
+                    orders_next_ts.append(order)
                 else:
                     self.orders_processed.append(order)
+            self.orders_unprocessed.extend(orders_next_ts)
 
             # close
             for strat in self.strategies:
