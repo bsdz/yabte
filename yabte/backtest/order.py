@@ -66,7 +66,7 @@ class Order(OrderBase):
 
     Request to trade `size` of `asset_name`. The `size`
     can be a quantity, notional or book percent.
-    
+
     If a `exec_cond` is set, it is called with the calculated
     trade price before the trade is executed. If it returns `None`,
     the trade is executed as normal. It can return `OrderStatus.CANCELLED`

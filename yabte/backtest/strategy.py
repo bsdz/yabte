@@ -108,7 +108,9 @@ def _check_data(df):
     expected_cols = pd.MultiIndex.from_tuples(product(asset_names, required_fields))
     missing_cols = expected_cols.difference(df.columns, sort=None)
     if len(missing_cols):
-        raise ValueError(f"data columns multiindex requires fields HLOCV and missing {missing_cols.tolist()}")
+        raise ValueError(
+            f"data columns multiindex requires fields HLOCV and missing {missing_cols.tolist()}"
+        )
 
     # TODO: check low <= open, high, close & high >= open, low, close
     # TODO: check vol >= 0

@@ -284,7 +284,9 @@ class StrategyRunnerTestCase(unittest.TestCase):
                     columns=pd.MultiIndex.from_product(
                         [["ACME"], ["Open", "High", "Low", "Close", "Volume"]]
                     ),
-                    index=pd.date_range(start="20180102", periods=len(data_arr), freq="B"),
+                    index=pd.date_range(
+                        start="20180102", periods=len(data_arr), freq="B"
+                    ),
                 )
 
                 sr = StrategyRunner(
@@ -296,8 +298,9 @@ class StrategyRunnerTestCase(unittest.TestCase):
                 sr.run()
 
                 self.assertListEqual(op_status, [o.status for o in sr.orders_processed])
-                self.assertListEqual(ou_status, [o.status for o in sr.orders_unprocessed])
-
+                self.assertListEqual(
+                    ou_status, [o.status for o in sr.orders_unprocessed]
+                )
 
 
 if __name__ == "__main__":
