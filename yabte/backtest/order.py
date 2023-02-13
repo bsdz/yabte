@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -41,11 +43,21 @@ def _intraday_traded_price(asset_day_data) -> Decimal:
 class OrderBase:
     """Base class for all orders.
 
-    Every order has a `status` and a target `book`."""
+    Every order has a `status` and a target `book`.
+
+    Orders are sorted by `priority` before processing.
+
+    An order can create additional orders by populating
+    `suborders`.
+
+    A `label` can be attributed to assist in matching
+    or filtering."""
 
     status: OrderStatus = OrderStatus.OPEN
     book: Optional[Book] = field(repr=False, default=None)
-    # priority: Optional[int] = 0  # TODO
+    suborders: List[OrderBase] = field(default_factory=list)
+    label: Optional[str] = None
+    priority: int = 0
 
     def __post_init__(self):
         # TODO: support being a BookName
@@ -67,21 +79,22 @@ class Order(OrderBase):
     Request to trade `size` of `asset_name`. The `size`
     can be a quantity, notional or book percent.
 
-    If a `exec_cond` is set, it is called with the calculated
+    If `pre_exec_cond` is set, it is called with the calculated
     trade price before the trade is executed. If it returns `None`,
     the trade is executed as normal. It can return `OrderStatus.CANCELLED`
     to indicate the trade should be cancelled or `OrderStatus.OPEN` to
     indicate the trade should not be executed in the current timestep
-    and processed in the following timestep."""
+    and processed in the following timestep.
+
+    If `post_complete` is set, it is called after and with trades that have
+    been successfully booked. It can return a list of new orders to be
+    executed the following timestep."""
 
     asset_name: AssetName
     size: Decimal
     size_type: OrderSizeType = OrderSizeType.QUANTITY
-    exec_cond: Optional[Callable[[Decimal], Optional[OrderStatus]]] = None
-
-    # TODO: support below types of order
-    # stop_loss_price: Optional[Decimal] = None
-    # take_profit_price: Optional[Decimal] = None
+    pre_exec_cond: Optional[Callable[[Decimal], Optional[OrderStatus]]] = None
+    post_complete: Optional[Callable[[List[Trade]], List[OrderBase]]] = None
 
     def __post_init__(self):
         super().__post_init__()
@@ -115,8 +128,8 @@ class Order(OrderBase):
 
         trade_quantity, trade_price = self._calc_quantity_price(day_data, asset_map)
 
-        if self.exec_cond is not None:
-            new_status = self.exec_cond(trade_price)
+        if self.pre_exec_cond is not None:
+            new_status = self.pre_exec_cond(trade_price)
             if new_status is not None:
                 self.status = new_status
                 return
@@ -133,6 +146,9 @@ class Order(OrderBase):
         if self.book.test_trades(trades):
             self.book.add_trades(trades)
             self.status = OrderStatus.COMPLETE
+            if self.post_complete is not None:
+                self.suborders.extend(self.post_complete(trades))
+
         else:
             self.status = OrderStatus.MANDATE_FAILED
 

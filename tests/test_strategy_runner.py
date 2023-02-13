@@ -237,7 +237,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
                     # if goes above 110 then cancel
                     if tp > 110:
                         return OrderStatus.CANCELLED
-                    # if drops below 90 then compelete order
+                    # if drops below 90 then complete order
                     elif tp < 90:
                         return None
                     # otherwise leave open for another day
@@ -246,39 +246,41 @@ class StrategyRunnerTestCase(unittest.TestCase):
                 ix = self.data.index.get_loc(self.ts)
                 if ix == 0:
                     self.orders.append(
-                        Order(asset_name="ACME", size=100, exec_cond=my_limit_func)
+                        Order(asset_name="ACME", size=100, pre_exec_cond=my_limit_func)
                     )
 
-        for data_arr, op_status, ou_status in [
-            (
-                [
-                    [105, 105, 105, 105, 100],
-                    [115, 115, 115, 115, 100],
-                    [110, 110, 110, 110, 100],
-                ],
-                [OrderStatus.CANCELLED],
-                [],
-            ),
-            (
-                [
-                    [95, 95, 95, 95, 100],
-                    [100, 100, 100, 100, 100],
-                    [105, 105, 105, 105, 100],
-                ],
-                [],
-                [OrderStatus.OPEN],
-            ),
-            (
-                [
-                    [95, 95, 95, 95, 100],
-                    [100, 100, 100, 100, 100],
-                    [85, 85, 85, 85, 100],
-                ],
-                [OrderStatus.COMPLETE],
-                [],
-            ),
-        ]:
-            with self.subTest():
+        for ix, (data_arr, op_status, ou_status) in enumerate(
+            [
+                (
+                    [
+                        [105, 105, 105, 105, 100],
+                        [115, 115, 115, 115, 100],
+                        [110, 110, 110, 110, 100],
+                    ],
+                    [OrderStatus.CANCELLED],
+                    [],
+                ),
+                (
+                    [
+                        [95, 95, 95, 95, 100],
+                        [100, 100, 100, 100, 100],
+                        [105, 105, 105, 105, 100],
+                    ],
+                    [],
+                    [OrderStatus.OPEN],
+                ),
+                (
+                    [
+                        [95, 95, 95, 95, 100],
+                        [100, 100, 100, 100, 100],
+                        [85, 85, 85, 85, 100],
+                    ],
+                    [OrderStatus.COMPLETE],
+                    [],
+                ),
+            ]
+        ):
+            with self.subTest(i=ix):
                 data = pd.DataFrame(
                     data_arr,
                     columns=pd.MultiIndex.from_product(
@@ -293,13 +295,88 @@ class StrategyRunnerTestCase(unittest.TestCase):
                     data=data,
                     asset_meta={"ACME": {"denom": "USD"}},
                     strats=[TestLimitOrderStrat],
-                    # strat_params={"size_type": OrderSizeType.QUANTITY},
                 )
                 sr.run()
 
                 self.assertListEqual(op_status, [o.status for o in sr.orders_processed])
                 self.assertListEqual(
                     ou_status, [o.status for o in sr.orders_unprocessed]
+                )
+
+    def test_stop_loss_order(self):
+        class TestStopLossOrderStrat(Strategy):
+            def on_close(self):
+                def my_stop_func(tp):
+                    # if drops below 90 then complete stop order
+                    if tp < 90:
+                        return None
+                    # otherwise leave open for another day
+                    return OrderStatus.OPEN
+
+                def my_post_comp_func(trades):
+                    return [
+                        Order(
+                            asset_name=t.asset_name,
+                            size=t.quantity,
+                            pre_exec_cond=my_stop_func,
+                            label="my_stop",
+                        )
+                        for t in trades
+                    ]
+
+                ix = self.data.index.get_loc(self.ts)
+                if ix == 0:
+                    self.orders.append(
+                        Order(
+                            asset_name="ACME", size=100, post_complete=my_post_comp_func
+                        )
+                    )
+
+        for ix, (data_arr, op_status, ou_status) in enumerate(
+            [
+                (
+                    [
+                        [105, 105, 105, 105, 100],
+                        [115, 115, 115, 115, 100],
+                        [110, 110, 110, 110, 100],
+                    ],
+                    [(OrderStatus.COMPLETE, None)],
+                    [(OrderStatus.OPEN, "my_stop")],
+                ),
+                (
+                    [
+                        [95, 95, 95, 95, 100],
+                        [100, 100, 100, 100, 100],
+                        [85, 85, 85, 85, 100],
+                    ],
+                    [(OrderStatus.COMPLETE, None), (OrderStatus.COMPLETE, "my_stop")],
+                    [],
+                ),
+            ]
+        ):
+            with self.subTest(i=ix):
+                data = pd.DataFrame(
+                    data_arr,
+                    columns=pd.MultiIndex.from_product(
+                        [["ACME"], ["Open", "High", "Low", "Close", "Volume"]]
+                    ),
+                    index=pd.date_range(
+                        start="20180102", periods=len(data_arr), freq="B"
+                    ),
+                )
+
+                sr = StrategyRunner(
+                    data=data,
+                    asset_meta={"ACME": {"denom": "USD"}},
+                    strats=[TestStopLossOrderStrat],
+                )
+                sr.run()
+
+                self.assertListEqual(
+                    op_status, [(o.status, o.label) for o in sr.orders_processed]
+                )
+                self.assertListEqual(
+                    ou_status, [(o.status, o.label) for o in sr.orders_unprocessed]
                 )
 
 

@@ -194,6 +194,13 @@ class StrategyRunner:
                 ts, (slice(None), ["High", "Low", "Open", "Close"])
             ]
 
+            # sort orders by priority
+            ou_sorted = sorted(
+                self.orders_unprocessed, key=lambda o: o.priority, reverse=True
+            )
+            self.orders_unprocessed.clear()
+            self.orders_unprocessed.extend(ou_sorted)
+
             # process orders
             orders_next_ts = []
             while self.orders_unprocessed:
@@ -203,6 +210,9 @@ class StrategyRunner:
                     order.book = self.books[0]
 
                 order.apply(ts, day_data, asset_map)
+
+                # add any child orders to next ts
+                orders_next_ts.extend(order.suborders)
 
                 if order.status == OrderStatus.OPEN:
                     orders_next_ts.append(order)
