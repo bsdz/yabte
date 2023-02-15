@@ -126,7 +126,9 @@ class StrategyRunnerTestCase(unittest.TestCase):
 
     def test_sma_crossover(self):
         sr = StrategyRunner(
-            data=self.df_combined, asset_meta=self.asset_meta, strat_classes=[TestSMAXOStrat]
+            data=self.df_combined,
+            asset_meta=self.asset_meta,
+            strat_classes=[TestSMAXOStrat],
         )
         sr.run()
 
