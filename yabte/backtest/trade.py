@@ -11,13 +11,19 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, kw_only=True)
 class Trade:
-    """A frozen record of the transaction for time `ts` and `asset_name`
-    along with `quantity` and `price`."""
+    """A frozen record of the transaction."""
 
     ts: pd.Timestamp
+    """Trade time."""
+
     quantity: Decimal
+    """Traded quantity."""
+
     price: Decimal
+    """Traded price."""
+
     asset_name: AssetName
+    """Traded asset."""
 
     def __post_init__(self):
         if self.quantity == 0:

@@ -4,7 +4,7 @@ __all__ = ["Asset"]
 
 
 class AssetName(str):
-    pass
+    """Asset name string."""
 
 
 @dataclass(kw_only=True)
@@ -17,6 +17,13 @@ class Asset:
     """
 
     name: AssetName
+    """Name string."""
+
     denom: str
+    """Denominated currency."""
+
     price_round_dp: int = 2
+    """Number of decimal places to round prices to."""
+
     quantity_round_dp: int = 2
+    """Number of decimal places to round quantities to."""

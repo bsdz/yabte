@@ -87,7 +87,7 @@ book = Book(name="PrimaryBook", cash="100000")
 sr = StrategyRunner(
     data=pd.concat([df_goog, df_msft], axis=1),
     asset_meta=asset_meta,
-    strats=[SMAXO],
+    strat_classes=[SMAXO],
     books=[book],
 )
 sr.run()

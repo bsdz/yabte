@@ -19,16 +19,32 @@ __all__ = ["Order", "PositionalOrder", "BasketOrder", "PositionalBasketOrder"]
 
 
 class OrderStatus(Enum):
+    """Various statuses"""
+
     MANDATE_FAILED = 1
+    """Order failed due to mandate."""
+
     CANCELLED = 2
+    """Order was cancelled."""
+
     OPEN = 3
+    """Order is open."""
+
     COMPLETE = 4
+    """Order completed succesfully."""
 
 
 class OrderSizeType(Enum):
+    """Various size types."""
+
     QUANTITY = 1
+    """Size is a quantity."""
+
     NOTIONAL = 2
+    """Size represent notional amount."""
+
     BOOK_PERCENT = 3
+    """Size is a percentage of book value."""
 
 
 def _intraday_traded_price(asset_day_data) -> Decimal:
@@ -41,23 +57,22 @@ def _intraday_traded_price(asset_day_data) -> Decimal:
 
 @dataclass(kw_only=True)
 class OrderBase:
-    """Base class for all orders.
-
-    Every order has a `status` and a target `book`.
-
-    Orders are sorted by `priority` before processing.
-
-    An order can create additional orders by populating
-    `suborders`.
-
-    A `label` can be attributed to assist in matching
-    or filtering."""
+    """Base class for all orders."""
 
     status: OrderStatus = OrderStatus.OPEN
+    """Status of order."""
+
     book: Optional[Book] = field(repr=False, default=None)
+    """Target book."""
+
     suborders: List[OrderBase] = field(default_factory=list)
+    """Additional orders to be executed the following timestep."""
+
     label: Optional[str] = None
+    """Label to assist in matching / filtering."""
+
     priority: int = 0
+    """Each day orders are sorted by this field and executed in order."""
 
     def __post_init__(self):
         # TODO: support being a BookName
@@ -66,7 +81,7 @@ class OrderBase:
     def apply(
         self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
     ):
-        """Applys order to `self.book` for time `ts` using provided `day_data` and
+        """Applies order to `self.book` for time `ts` using provided `day_data` and
         dictionary of asset information `asset_map`.
         """
         raise NotImplementedError("The apply methods needs to be implemented.")
@@ -74,27 +89,29 @@ class OrderBase:
 
 @dataclass(kw_only=True)
 class Order(OrderBase):
-    """Simple market order.
+    """Simple market order."""
 
-    Request to trade `size` of `asset_name`. The `size`
-    can be a quantity, notional or book percent.
+    asset_name: AssetName
+    """Asset name for order."""
 
-    If `pre_exec_cond` is set, it is called with the calculated
+    size: Decimal
+    """Order size."""
+
+    size_type: OrderSizeType = OrderSizeType.QUANTITY
+    """Order size type. Can be a quantity, notional or book percent."""
+
+    pre_exec_cond: Optional[Callable[[Decimal], Optional[OrderStatus]]] = None
+    """Callable that if set, is called with the calculated
     trade price before the trade is executed. If it returns `None`,
     the trade is executed as normal. It can return `OrderStatus.CANCELLED`
     to indicate the trade should be cancelled or `OrderStatus.OPEN` to
     indicate the trade should not be executed in the current timestep
-    and processed in the following timestep.
+    and processed in the following timestep."""
 
-    If `post_complete` is set, it is called after and with trades that have
+    post_complete: Optional[Callable[[List[Trade]], List[OrderBase]]] = None
+    """Callable that if set, is called after and with trades that have
     been successfully booked. It can return a list of new orders to be
     executed the following timestep."""
-
-    asset_name: AssetName
-    size: Decimal
-    size_type: OrderSizeType = OrderSizeType.QUANTITY
-    pre_exec_cond: Optional[Callable[[Decimal], Optional[OrderStatus]]] = None
-    post_complete: Optional[Callable[[List[Trade]], List[OrderBase]]] = None
 
     def __post_init__(self):
         super().__post_init__()
@@ -160,10 +177,11 @@ class PositionalOrderCheckType(Enum):
 
 @dataclass(kw_only=True)
 class PositionalOrder(Order):
-    """Ensures current position is `size` and will close out existing posiitons
-    to achieve this. To determine if a trade one can set `check_type`."""
+    """Ensures current position is `size` and will close out existing positions
+    to achieve this."""
 
     check_type: PositionalOrderCheckType = PositionalOrderCheckType.POS_TQ_DIFFER
+    """Condition type to determine if a trade is required."""
 
     def __post_init__(self):
         super().__post_init__()
@@ -218,12 +236,19 @@ class PositionalOrder(Order):
 
 @dataclass
 class BasketOrder(OrderBase):
-    """Combine multiple `asset_names` into a single order with `weights`."""
+    """Combine multiple assets into a single order."""
 
     asset_names: List[AssetName]
+    """List of asset names in basket."""
+
     weights: List[Decimal]
+    """Corresponding weights for each asset."""
+
     size: Decimal
+    """Combined size of order."""
+
     size_type: OrderSizeType = OrderSizeType.QUANTITY
+    """Size type."""
 
     def __post_init__(self):
         super().__post_init__()
@@ -294,7 +319,7 @@ class BasketOrder(OrderBase):
 
 @dataclass(kw_only=True)
 class PositionalBasketOrder(BasketOrder):
-    """Similar to a `BasketOrder` but will close out exisiting positions
+    """Similar to a :py:class:`BasketOrder` but will close out existing positions
     if they do not match requested weights."""
 
     check_type: PositionalOrderCheckType = PositionalOrderCheckType.POS_TQ_DIFFER

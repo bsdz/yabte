@@ -23,11 +23,17 @@ class Orders(deque):
 
 @dataclass(kw_only=True)
 class Strategy:
-    """Trading strategy base class."""
+    """Trading strategy base class. This class should be derived from
+    and will be instantiated by :py:class:`StrategyRunner`."""
 
     orders: Orders
+    """Double ended queue of orders."""
+
     params: pd.Series
+    """Parameters supplied to strategy."""
+
     books: List[Book]  # TODO: wrap this to make read only
+    """List of books used. This should be treated as read only."""
 
     _ts = None
     _data_lock = True
@@ -127,18 +133,61 @@ class StrategyRunner:
     histories are captured in `book_history` and `trade_history`."""
 
     data: pd.DataFrame = field()
+    """Dataframe of price data including columns High, Low, Open, Close, Volume
+    for each asset. Both asset name and field make a multiindex column. The index
+    should consist of order pandas timestamps."""
+
     asset_meta: Dict[AssetName, Dict[str, Any]]
-    strats: List[Type[Strategy]]  # TODO: rename to strat_classes
+    """Dictionary mapping each asset to a dictionary of meta data such as
+    currency denomination."""
+
+    strat_classes: List[Type[Strategy]]
+    """Strategy classes to be called within this runner."""
+
     mandates: Dict[AssetName, BookMandate] = field(default_factory=dict)
+    """Dictionary of asset mandates (experimental)."""
+
     strat_params: Dict[str, Any] = field(default_factory=dict)
+    """Parameters passed to all strategies."""
 
-    orders_unprocessed: Orders = field(default_factory=Orders)
-    orders_processed: List[Order] = field(default_factory=list)
     books: List[Book] = field(default_factory=list)
-    strategies: List[Strategy] = field(default_factory=list)
+    """Books available to strategies. If not supplied will be populated
+    with single book named 'PrimaryBook' denominated in USD."""
 
-    book_history: Optional[pd.DataFrame] = None
-    trade_history: Optional[pd.DataFrame] = None
+    _orders_unprocessed: Orders = field(default_factory=Orders)
+
+    @property
+    def orders_unprocessed(self) -> Orders:
+        """Unprocessed orders queue."""
+        return self._orders_unprocessed
+
+    _orders_processed: List[Order] = field(default_factory=list)
+
+    @property
+    def orders_processed(self) -> List[Order]:
+        """Processed orders list."""
+        return self._orders_processed
+
+    _strategies: List[Strategy] = field(default_factory=list)
+
+    @property
+    def strategies(self) -> List[Strategy]:
+        """List of instantiated strategies."""
+        return self._strategies
+
+    _book_history: Optional[pd.DataFrame] = None
+
+    @property
+    def book_history(self) -> pd.DataFrame:
+        """Dataframe with book cash, mtm and total value history."""
+        return self._book_history
+
+    @property
+    def trade_history(self) -> pd.DataFrame:
+        """Dataframe with trade history."""
+        return pd.concat(
+            [pd.DataFrame(bk.trades).assign(book=bk.name) for bk in self.books]
+        )
 
     def __post_init__(self):
         _check_data(self.data)
@@ -159,15 +208,15 @@ class StrategyRunner:
         calendar = self.data.index
 
         # set up strategies
-        self.strategies = [
+        self._strategies = [
             cls(
-                orders=self.orders_unprocessed,
+                orders=self._orders_unprocessed,
                 params=pd.Series(self.strat_params, dtype=np.object0),
                 books=self.books,  # TODO: make readonly wrapper
             )
-            for cls in self.strats
+            for cls in self.strat_classes
         ]
-        for strat in self.strategies:
+        for strat in self._strategies:
             strat._data_lock = False
             strat.data = deepcopy(self.data)
             strat.init()
@@ -180,7 +229,7 @@ class StrategyRunner:
             logger.info(f"Processing timestep {ts}")
 
             # open
-            for strat in self.strategies:
+            for strat in self._strategies:
                 # provide window
                 strat._ts_lock = False
                 strat._ts = ts
@@ -196,15 +245,15 @@ class StrategyRunner:
 
             # sort orders by priority
             ou_sorted = sorted(
-                self.orders_unprocessed, key=lambda o: o.priority, reverse=True
+                self._orders_unprocessed, key=lambda o: o.priority, reverse=True
             )
-            self.orders_unprocessed.clear()
-            self.orders_unprocessed.extend(ou_sorted)
+            self._orders_unprocessed.clear()
+            self._orders_unprocessed.extend(ou_sorted)
 
             # process orders
             orders_next_ts = []
-            while self.orders_unprocessed:
-                order = self.orders_unprocessed.popleft()
+            while self._orders_unprocessed:
+                order = self._orders_unprocessed.popleft()
 
                 if order.book is None:
                     order.book = self.books[0]
@@ -218,10 +267,10 @@ class StrategyRunner:
                     orders_next_ts.append(order)
                 else:
                     self.orders_processed.append(order)
-            self.orders_unprocessed.extend(orders_next_ts)
+            self._orders_unprocessed.extend(orders_next_ts)
 
             # close
-            for strat in self.strategies:
+            for strat in self._strategies:
                 # provide window
                 strat._ts_lock = False
                 strat._ts = ts
@@ -238,8 +287,4 @@ class StrategyRunner:
                 book_history[(book.name, "mtm")].append(mtm)
                 book_history[(book.name, "value")].append(cash + mtm)
 
-        self.book_history = pd.DataFrame(book_history, index=calendar)
-
-        self.trade_history = pd.concat(
-            [pd.DataFrame(bk.trades).assign(book=bk.name) for bk in self.books]
-        )
+        self._book_history = pd.DataFrame(book_history, index=calendar)
