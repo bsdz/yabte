@@ -58,6 +58,26 @@ class TestSMAXOStrat(Strategy):
                 self.orders.append(Order(asset_name=symbol, size=-100))
 
 
+class TestSMAXOMultipleBookStrat(TestSMAXOStrat):
+    def on_close(self):
+        # create some orders
+
+        for symbol in ["GOOG", "MSFT"]:
+            book_name = f"{symbol}_BOOK"
+            df = self.data[symbol]
+            ix_2d = df.index[-2:]
+            data = df.loc[ix_2d, ("CloseSMAShort", "CloseSMALong")].dropna()
+            if len(data) == 2:
+                if crossover(data.CloseSMAShort, data.CloseSMALong):
+                    self.orders.append(
+                        Order(book=book_name, asset_name=symbol, size=-100)
+                    )
+                elif crossover(data.CloseSMALong, data.CloseSMAShort):
+                    self.orders.append(
+                        Order(book=book_name, asset_name=symbol, size=100)
+                    )
+
+
 class TestPosOrderSizeStrat(Strategy):
     def on_close(self):
         p = self.params
@@ -152,6 +172,25 @@ class StrategyRunnerTestCase(unittest.TestCase):
             )
         )
 
+    def test_multiple_books(self):
+        books = [
+            Book(name="MSFT_BOOK", cash=Decimal("1000000")),
+            Book(name="GOOG_BOOK", cash=Decimal("1000000")),
+        ]
+
+        sr = StrategyRunner(
+            data=self.df_combined,
+            asset_meta=self.asset_meta,
+            strat_classes=[TestSMAXOMultipleBookStrat],
+            books=books,
+        )
+        sr.run()
+
+        th = sr.trade_history
+        self.assertEqual(len(th.book.unique()), 2)
+        bh = sr.book_history
+        self.assertEqual(len(bh.columns.levels[0]), 2)
+
     def test_positional_orders_quantity(self):
         # test using quantities
         sr = StrategyRunner(
@@ -230,7 +269,6 @@ class StrategyRunnerTestCase(unittest.TestCase):
 
         # 20 = 4 x ttttc
         self.assertEqual(len(sr.books[0].trades), 20)
-        pass
 
     def test_limit_order(self):
         class TestLimitOrderStrat(Strategy):

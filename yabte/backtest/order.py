@@ -10,7 +10,7 @@ import pandas as pd
 
 from ._helpers import ensure_decimal, ensure_enum
 from .asset import Asset, AssetName
-from .book import Book
+from .book import Book, BookName
 from .trade import Trade
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ class OrderBase:
     status: OrderStatus = OrderStatus.OPEN
     """Status of order."""
 
-    book: Optional[Book] = field(repr=False, default=None)
+    book: BookName | Book | None = field(repr=False, default=None)
     """Target book."""
 
     suborders: List[OrderBase] = field(default_factory=list)
@@ -75,7 +75,6 @@ class OrderBase:
     """Each day orders are sorted by this field and executed in order."""
 
     def __post_init__(self):
-        # TODO: support being a BookName
         pass
 
     def apply(
@@ -128,7 +127,7 @@ class Order(OrderBase):
         elif self.size_type == OrderSizeType.NOTIONAL:
             quantity = self.size / trade_price
         elif self.size_type == OrderSizeType.BOOK_PERCENT:
-            assert self.book is not None  # to please mypy
+            assert isinstance(self.book, Book)  # to please mypy
             quantity = self.book.cash * self.size / 100 / trade_price
         else:
             raise RuntimeError("Unsupported size type")
@@ -140,8 +139,8 @@ class Order(OrderBase):
     def apply(
         self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
     ):
-        if not self.book:
-            raise RuntimeError("Cannot apply order without book")
+        if not self.book or not isinstance(self.book, Book):
+            raise RuntimeError("Cannot apply order without book instance")
 
         trade_quantity, trade_price = self._calc_quantity_price(day_data, asset_map)
 
@@ -190,8 +189,8 @@ class PositionalOrder(Order):
     def apply(
         self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
     ):
-        if not self.book:
-            raise RuntimeError("Cannot apply order without book")
+        if not self.book or not isinstance(self.book, Book):
+            raise RuntimeError("Cannot apply order without book instance")
 
         trade_quantity, trade_price = self._calc_quantity_price(day_data, asset_map)
 
@@ -271,7 +270,7 @@ class BasketOrder(OrderBase):
             k = self.size / tp_weighted
             quantities = [k * w for w in self.weights]
         elif self.size_type == OrderSizeType.BOOK_PERCENT:
-            assert self.book is not None  # to please mypy
+            assert isinstance(self.book, Book)  # to please mypy
             # TODO: size is ignored, perhaps use a scaling factor?
             # NOTE: we could use self.book.mtm but would be from previous day
             book_mtm = sum(
@@ -295,8 +294,8 @@ class BasketOrder(OrderBase):
     def apply(
         self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
     ):
-        if not self.book:
-            raise RuntimeError("Cannot apply order without book")
+        if not self.book or not isinstance(self.book, Book):
+            raise RuntimeError("Cannot apply order without book instance")
 
         trade_quantity_prices = self._calc_quantity_price(day_data, asset_map)
 
@@ -327,8 +326,8 @@ class PositionalBasketOrder(BasketOrder):
     def apply(
         self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
     ):
-        if not self.book:
-            raise RuntimeError("Cannot apply order without book")
+        if not self.book or not isinstance(self.book, Book):
+            raise RuntimeError("Cannot apply order without book instance")
 
         trade_quantity_prices = self._calc_quantity_price(day_data, asset_map)
 

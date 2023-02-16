@@ -3,10 +3,12 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from decimal import Decimal
 from itertools import groupby
-from typing import Dict, List
+from typing import Any, Dict, List
+
+import pandas as pd
 
 from ._helpers import ensure_decimal
-from .asset import AssetName
+from .asset import Asset, AssetName
 from .trade import Trade
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,15 @@ class Book:
     cash: Decimal = Decimal(0)
     """Cash value of book."""
 
+    _history: List[List[Any]] = field(default_factory=list)
+
+    @property
+    def history(self) -> pd.DataFrame:
+        """Dataframe with book cash, mtm and total value history."""
+        return pd.DataFrame(
+            self._history, columns=["ts", "cash", "mtm", "value"]
+        ).set_index("ts")
+
     def __post_init__(self):
         self.cash = ensure_decimal(self.cash)
 
@@ -75,3 +86,13 @@ class Book:
             self.trades.append(trade)
             self.positions[trade.asset_name] += trade.quantity
             self.cash -= trade.quantity * trade.price
+
+    def eod_tasks(
+        self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
+    ):
+        """Run end of day tasks such as book keeping.
+
+        TODO: support daily interest accumulation."""
+        cash = float(self.cash)
+        mtm = sum(day_data[an].Close * float(q) for an, q in self.positions.items())
+        self._history.append([ts, cash, mtm, cash + mtm])

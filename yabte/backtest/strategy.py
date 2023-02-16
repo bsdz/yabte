@@ -180,7 +180,7 @@ class StrategyRunner:
     @property
     def book_history(self) -> pd.DataFrame:
         """Dataframe with book cash, mtm and total value history."""
-        return self._book_history
+        return pd.concat({b.name: b.history for b in self.books}, axis=1)
 
     @property
     def trade_history(self) -> pd.DataFrame:
@@ -203,6 +203,7 @@ class StrategyRunner:
         asset_map = {
             name: Asset(name=name, **kwds) for name, kwds in self.asset_meta.items()
         }
+        book_map = {book.name: book for book in self.books}
 
         # calendar
         calendar = self.data.index
@@ -223,8 +224,6 @@ class StrategyRunner:
             strat._data_lock = True
 
         # run event loop
-        book_history = defaultdict(list)
-
         for ts in calendar:
             logger.info(f"Processing timestep {ts}")
 
@@ -255,8 +254,9 @@ class StrategyRunner:
             while self._orders_unprocessed:
                 order = self._orders_unprocessed.popleft()
 
-                if order.book is None:
-                    order.book = self.books[0]
+                # set book attribute if needed
+                if not isinstance(order.book, Book):
+                    order.book = book_map.get(order.book, self.books[0])
 
                 order.apply(ts, day_data, asset_map)
 
@@ -277,14 +277,6 @@ class StrategyRunner:
                 strat._ts_lock = True
                 strat.on_close()
 
-            # capture stats
+            # run book end-of-day tasks
             for book in self.books:
-                cash = float(book.cash)
-                mtm = sum(
-                    day_data[an].Close * float(q) for an, q in book.positions.items()
-                )
-                book_history[(book.name, "cash")].append(cash)
-                book_history[(book.name, "mtm")].append(mtm)
-                book_history[(book.name, "value")].append(cash + mtm)
-
-        self._book_history = pd.DataFrame(book_history, index=calendar)
+                book.eod_tasks(ts, day_data, asset_map)
