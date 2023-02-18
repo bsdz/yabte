@@ -11,9 +11,9 @@ class AssetName(str):
 class Asset:
     """Anything that has a price.
 
-    The price currency is `denom` and default rounding
-    controlled by `price_round_dp`. The quantity rounding
-    is controled by `quantity_round_dp`.
+    The price currency is `denom` and default rounding controlled by
+    `price_round_dp`. The quantity rounding is controled by
+    `quantity_round_dp`.
     """
 
     name: AssetName

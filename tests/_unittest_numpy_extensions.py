@@ -1,5 +1,5 @@
-""" monkey patch unittest to include numpy assertions.
-Maps numpy assert_func_name to numpyAssertFuncName.
+"""monkey patch unittest to include numpy assertions. Maps numpy
+assert_func_name to numpyAssertFuncName.
 
 Example:
 
@@ -7,7 +7,7 @@ Example:
         def test_allclose_example(self):
             a1 = np.array([1.,2.,3.])
             self.numpyAssertAllclose(a1, np.array([1.,2.,3.1]))
-            
+
     suite = unittest.TestSuite()
     suite.addTest(NumpyWrapperTest("test_allclose_example"))
     unittest.TextTestRunner().run(suite)

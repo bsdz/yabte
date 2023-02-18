@@ -23,8 +23,11 @@ class Orders(deque):
 
 @dataclass(kw_only=True)
 class Strategy:
-    """Trading strategy base class. This class should be derived from
-    and will be instantiated by :py:class:`StrategyRunner`."""
+    """Trading strategy base class.
+
+    This class should be derived from and will be instantiated by
+    :py:class:`StrategyRunner`.
+    """
 
     orders: Orders
     """Double ended queue of orders."""
@@ -33,7 +36,10 @@ class Strategy:
     """Parameters supplied to strategy."""
 
     books: List[Book]  # TODO: wrap this to make read only
-    """List of books used. This should be treated as read only."""
+    """List of books used.
+
+    This should be treated as read only.
+    """
 
     _ts = None
     _data_lock = True
@@ -53,9 +59,9 @@ class Strategy:
 
     @property
     def data(self) -> pd.DataFrame:
-        """Provides window of data available up to current
-        timestamp `self.ts` and masks out data not availble
-        at open (like high, low, close, volume)."""
+        """Provides window of data available up to current timestamp `self.ts`
+        and masks out data not availble at open (like high, low, close,
+        volume)."""
         if not self.ts:
             return self._data
         else:
@@ -82,20 +88,24 @@ class Strategy:
         pass
 
     def on_open(self):
-        """Executed on open every day. Use `self.ts` to determine
-        current timestamp. Data available at this timestamp is
-        accessible from `self.data`."""
+        """Executed on open every day.
+
+        Use `self.ts` to determine current timestamp. Data available at
+        this timestamp is accessible from `self.data`.
+        """
         pass
 
     def on_close(self):
-        """Executed on close every day. Use `self.ts` to determine
-        current timestamp. Data available at this timestamp is
-        accessible from `self.data`."""
+        """Executed on close every day.
+
+        Use `self.ts` to determine current timestamp. Data available at
+        this timestamp is accessible from `self.data`.
+        """
         pass
 
 
 def _check_data(df):
-    """check data structure correct"""
+    """Check data structure correct."""
 
     if not isinstance(df.index, pd.DatetimeIndex):
         raise ValueError("data index must be a datetimeindex")
@@ -130,12 +140,16 @@ class StrategyRunner:
     Orders are captured in `orders_processed` and `orders_unprocessed`.
     `books` is a list of books and if none provided a single book is
     created call 'PrimaryBook'. After execution summary book and trade
-    histories are captured in `book_history` and `trade_history`."""
+    histories are captured in `book_history` and `trade_history`.
+    """
 
     data: pd.DataFrame = field()
     """Dataframe of price data including columns High, Low, Open, Close, Volume
-    for each asset. Both asset name and field make a multiindex column. The index
-    should consist of order pandas timestamps."""
+    for each asset.
+
+    Both asset name and field make a multiindex column. The index should
+    consist of order pandas timestamps.
+    """
 
     asset_meta: Dict[AssetName, Dict[str, Any]]
     """Dictionary mapping each asset to a dictionary of meta data such as
@@ -151,8 +165,11 @@ class StrategyRunner:
     """Parameters passed to all strategies."""
 
     books: List[Book] = field(default_factory=list)
-    """Books available to strategies. If not supplied will be populated
-    with single book named 'PrimaryBook' denominated in USD."""
+    """Books available to strategies.
+
+    If not supplied will be populated with single book named
+    'PrimaryBook' denominated in USD.
+    """
 
     _orders_unprocessed: Orders = field(default_factory=Orders)
 

@@ -21,6 +21,7 @@ matplotlib = "^3.6.2"
 isort = "^5.11.4"
 ipykernel = "^6.20.2"
 black = {extras = ["jupyter"], version = "^23.1.0"}
+docformatter = "^1.5.1"
 
 [tool.poetry.group.docs]
 optional = true

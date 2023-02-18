@@ -14,8 +14,9 @@ class ScaleAccessor:
 
 @pd.api.extensions.register_dataframe_accessor("prc")
 class PriceAccessor:
-    # TODO add ledoit cov (via sklearn)
+    # TODO: add ledoit cov (via sklearn)
     # http://www.ledoit.net/honey.pdf
+    # TODO: add Sharpe ratio
 
     def __init__(self, pandas_obj):
         self._validate(pandas_obj)

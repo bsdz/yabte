@@ -117,3 +117,14 @@ Jupyter notebook examples can be found under the [notebooks folder](https://gith
 ## Documentation
 
 Documentation can be found on [Read the Docs](https://yabte.readthedocs.io/en/latest/).
+
+
+## Development
+
+Before commit run following format commands in project folder:
+
+```bash
+poetry run black .
+poetry run isort . --profile black
+poetry run docformatter . --recursive --in-place
+```

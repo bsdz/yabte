@@ -1,4 +1,4 @@
-r"""Calculate portfolio weights by minimizing variance. 
+r"""Calculate portfolio weights by minimizing variance.
 
 That is to minimize the following expression subject to various constraints.
 
@@ -8,7 +8,6 @@ That is to minimize the following expression subject to various constraints.
 
 Typical constraints are achieving a target return, i.e. :math:`w' \mu = r`, and that
 all weights sum to one, i.e. :math:`\Sigma_i w_i = 1`.
-   
 """
 
 import numpy as np
@@ -18,8 +17,8 @@ from ..utilities.lagrangian import Lagrangian
 
 
 def minimum_variance(Sigma: np.ndarray, mu: np.ndarray, r: float) -> np.ndarray:
-    """Calculate weights using Lagrangian multipliers and
-    algebraic closed form solution."""
+    """Calculate weights using Lagrangian multipliers and algebraic closed form
+    solution."""
     m = len(mu)
     ones = np.ones(m)
 
@@ -34,8 +33,8 @@ def minimum_variance(Sigma: np.ndarray, mu: np.ndarray, r: float) -> np.ndarray:
 
 
 def minimum_variance_numeric(Sigma: np.ndarray, mu: np.ndarray, r: float) -> np.ndarray:
-    """Calculate weights using Lagrangian multipliers and
-    numeric solution (using scipy's root function)."""
+    """Calculate weights using Lagrangian multipliers and numeric solution
+    (using scipy's root function)."""
     m = len(mu)
     ones = np.ones(m)
 
@@ -53,8 +52,8 @@ def minimum_variance_numeric(Sigma: np.ndarray, mu: np.ndarray, r: float) -> np.
 def minimum_variance_numeric_slsqp(
     Sigma: np.ndarray, mu: np.ndarray, r: float
 ) -> np.ndarray:
-    """Calculate weights using Lagrangian multipliers and
-    numeric solution (using scipy's minimize function)."""
+    """Calculate weights using Lagrangian multipliers and numeric solution
+    (using scipy's minimize function)."""
     from scipy.optimize import minimize
 
     m = len(mu)

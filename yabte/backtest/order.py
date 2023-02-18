@@ -19,7 +19,7 @@ __all__ = ["Order", "PositionalOrder", "BasketOrder", "PositionalBasketOrder"]
 
 
 class OrderStatus(Enum):
-    """Various statuses"""
+    """Various statuses."""
 
     MANDATE_FAILED = 1
     """Order failed due to mandate."""
@@ -80,9 +80,8 @@ class OrderBase:
     def apply(
         self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
     ):
-        """Applies order to `self.book` for time `ts` using provided `day_data` and
-        dictionary of asset information `asset_map`.
-        """
+        """Applies order to `self.book` for time `ts` using provided `day_data`
+        and dictionary of asset information `asset_map`."""
         raise NotImplementedError("The apply methods needs to be implemented.")
 
 
@@ -97,20 +96,28 @@ class Order(OrderBase):
     """Order size."""
 
     size_type: OrderSizeType = OrderSizeType.QUANTITY
-    """Order size type. Can be a quantity, notional or book percent."""
+    """Order size type.
+
+    Can be a quantity, notional or book percent.
+    """
 
     pre_exec_cond: Optional[Callable[[Decimal], Optional[OrderStatus]]] = None
-    """Callable that if set, is called with the calculated
-    trade price before the trade is executed. If it returns `None`,
-    the trade is executed as normal. It can return `OrderStatus.CANCELLED`
-    to indicate the trade should be cancelled or `OrderStatus.OPEN` to
-    indicate the trade should not be executed in the current timestep
-    and processed in the following timestep."""
+    """Callable that if set, is called with the calculated trade price before
+    the trade is executed.
+
+    If it returns `None`, the trade is executed as normal. It can return
+    `OrderStatus.CANCELLED` to indicate the trade should be cancelled or
+    `OrderStatus.OPEN` to indicate the trade should not be executed in
+    the current timestep and processed in the following timestep.
+    """
 
     post_complete: Optional[Callable[[List[Trade]], List[OrderBase]]] = None
-    """Callable that if set, is called after and with trades that have
-    been successfully booked. It can return a list of new orders to be
-    executed the following timestep."""
+    """Callable that if set, is called after and with trades that have been
+    successfully booked.
+
+    It can return a list of new orders to be executed the following
+    timestep.
+    """
 
     def __post_init__(self):
         super().__post_init__()
@@ -318,8 +325,8 @@ class BasketOrder(OrderBase):
 
 @dataclass(kw_only=True)
 class PositionalBasketOrder(BasketOrder):
-    """Similar to a :py:class:`BasketOrder` but will close out existing positions
-    if they do not match requested weights."""
+    """Similar to a :py:class:`BasketOrder` but will close out existing
+    positions if they do not match requested weights."""
 
     check_type: PositionalOrderCheckType = PositionalOrderCheckType.POS_TQ_DIFFER
 

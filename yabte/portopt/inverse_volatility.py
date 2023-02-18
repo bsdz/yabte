@@ -1,4 +1,4 @@
-r"""Calculate portfolio weights by inverting variance. 
+r"""Calculate portfolio weights by inverting variance.
 
 That is,
 
@@ -7,7 +7,6 @@ That is,
    w = \frac{\sigma^{-1}}{1'\sigma^{-1}}
 
 where :math:`\sigma^2 = diag(\Sigma)`.
-   
 """
 
 import numpy as np

@@ -24,15 +24,15 @@ class BookMandate:
 
 
 class BookName(str):
-    """Book name string"""
+    """Book name string."""
 
 
 @dataclass(kw_only=True)
 class Book:
     """Record of asset trades and positions including cash.
 
-    A `name` can be provided and the default `cash` value can be
-    changed to a non-zero amount.
+    A `name` can be provided and the default `cash` value can be changed
+    to a non-zero amount.
     """
 
     name: BookName
@@ -68,8 +68,8 @@ class Book:
         self.cash = ensure_decimal(self.cash)
 
     def test_trades(self, trades: List[Trade]) -> bool:
-        """Checks whether list of trades will be successful
-        by not failing any mandates."""
+        """Checks whether list of trades will be successful by not failing any
+        mandates."""
         for asset_name, asset_trades in groupby(trades, lambda t: t.asset_name):
             if asset_name in self.mandates:
                 total_quantity = sum(t.quantity for t in asset_trades)
@@ -80,8 +80,8 @@ class Book:
         return True
 
     def add_trades(self, trades: List[Trade]):
-        """Records the `trades` and adjusts internal dictionary
-        of positions and value of cash accordingly."""
+        """Records the `trades` and adjusts internal dictionary of positions
+        and value of cash accordingly."""
         for trade in trades:
             self.trades.append(trade)
             self.positions[trade.asset_name] += trade.quantity
@@ -92,7 +92,8 @@ class Book:
     ):
         """Run end of day tasks such as book keeping.
 
-        TODO: support daily interest accumulation."""
+        TODO: support daily interest accumulation.
+        """
         cash = float(self.cash)
         mtm = sum(day_data[an].Close * float(q) for an, q in self.positions.items())
         self._history.append([ts, cash, mtm, cash + mtm])
