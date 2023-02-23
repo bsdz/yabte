@@ -12,7 +12,8 @@ Welcome to yabte's documentation!
    :caption: Contents:
 
    yabte.backtest
-   yabte.portopt
+   yabte.utilities.portopt
+   yabte.utilities.simulation
 
 Indices and tables
 ==================

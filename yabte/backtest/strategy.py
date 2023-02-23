@@ -1,5 +1,5 @@
 import logging
-from collections import defaultdict, deque
+from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass, field
 from itertools import product
@@ -35,11 +35,8 @@ class Strategy:
     params: pd.Series
     """Parameters supplied to strategy."""
 
-    books: List[Book]  # TODO: wrap this to make read only
-    """List of books used.
-
-    This should be treated as read only.
-    """
+    books: List[Book]
+    """List of books."""
 
     _ts = None
     _data_lock = True
@@ -118,19 +115,28 @@ def _check_data(df):
     if len(df.columns.levels) != 2:
         raise ValueError("data columns multiindex must have 2 levels")
 
-    # check each asset has required fields
-    required_fields = ["High", "Low", "Open", "Close", "Volume"]
+    # for cartesian products
     asset_names = df.columns.levels[0]
-    expected_cols = pd.MultiIndex.from_tuples(product(asset_names, required_fields))
-    missing_cols = expected_cols.difference(df.columns, sort=None)
-    if len(missing_cols):
+
+    # check each asset has required fields
+    required_fields = ["Close"]
+    required_cols = pd.MultiIndex.from_tuples(product(asset_names, required_fields))
+    missing_req_cols = required_cols.difference(df.columns, sort=None)
+    if len(missing_req_cols):
         raise ValueError(
-            f"data columns multiindex requires fields HLOCV and missing {missing_cols.tolist()}"
+            f"data columns multiindex requires fields {required_fields} and missing {missing_req_cols.tolist()}"
         )
+
+    # reindex columns with expected fields
+    expected_fields = ["High", "Low", "Open", "Close", "Volume"]
+    expected_cols = pd.MultiIndex.from_tuples(product(asset_names, expected_fields))
+    df = df.reindex(expected_cols, axis=1)
 
     # TODO: check low <= open, high, close & high >= open, low, close
     # TODO: check vol >= 0
     # TODO: check assets match asset_meta
+
+    return df
 
 
 @dataclass(kw_only=True)
@@ -140,7 +146,7 @@ class StrategyRunner:
     Orders are captured in `orders_processed` and `orders_unprocessed`.
     `books` is a list of books and if none provided a single book is
     created call 'PrimaryBook'. After execution summary book and trade
-    histories are captured in `book_history` and `trade_history`.
+    histories are captured in `book_history` and `transaction_history`.
     """
 
     data: pd.DataFrame = field()
@@ -200,14 +206,14 @@ class StrategyRunner:
         return pd.concat({b.name: b.history for b in self.books}, axis=1)
 
     @property
-    def trade_history(self) -> pd.DataFrame:
+    def transaction_history(self) -> pd.DataFrame:
         """Dataframe with trade history."""
         return pd.concat(
-            [pd.DataFrame(bk.trades).assign(book=bk.name) for bk in self.books]
+            [pd.DataFrame(bk.transactions).assign(book=bk.name) for bk in self.books]
         )
 
     def __post_init__(self):
-        _check_data(self.data)
+        self.data = _check_data(self.data)
 
         # set up books
         if not self.books:
@@ -230,7 +236,7 @@ class StrategyRunner:
             cls(
                 orders=self._orders_unprocessed,
                 params=pd.Series(self.strat_params, dtype=np.object0),
-                books=self.books,  # TODO: make readonly wrapper
+                books=self.books,
             )
             for cls in self.strat_classes
         ]

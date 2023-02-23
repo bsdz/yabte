@@ -93,11 +93,11 @@ sr = StrategyRunner(
 sr.run()
 
 # see the trades or book history
-th = sr.trade_history
+th = sr.transaction_history
 bch = sr.book_history.loc[:, (slice(None), "cash")]
 
 # plot the trades against book value
-bvh = sr.book_history.loc[:, (slice(None), "value")].droplevel(axis=1, level=1)
+bvh = sr.book_history.loc[:, (slice(None), "total")].droplevel(axis=1, level=1)
 ax = bvh.plot(title="Book Value History")
 
 for symbol, scol, lcol in [("GOOG", "red", "green"), ("MSFT", "blue", "yellow")]:

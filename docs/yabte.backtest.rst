@@ -15,10 +15,6 @@ Order
       :members:
       :member-order: bysource
 
-   .. autoclass:: yabte.backtest.order.OrderBase
-      :members:
-      :member-order: bysource
-
    .. autoclass:: yabte.backtest.order.OrderSizeType
       :members:
       :member-order: bysource
@@ -26,13 +22,15 @@ Order
    .. automodule:: yabte.backtest.order
       :members:
       :member-order: bysource
+      :inherited-members:
 
-Trade
------
+Transaction
+-----------
 
-   .. automodule:: yabte.backtest.trade
+   .. automodule:: yabte.backtest.transaction
       :members:
       :member-order: bysource
+      :inherited-members:
 
 Book
 ----

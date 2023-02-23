@@ -13,7 +13,7 @@ all weights sum to one, i.e. :math:`\Sigma_i w_i = 1`.
 import numpy as np
 import numpy.linalg as la
 
-from ..utilities.lagrangian import Lagrangian
+from ..lagrangian import Lagrangian
 
 
 def minimum_variance(Sigma: np.ndarray, mu: np.ndarray, r: float) -> np.ndarray:

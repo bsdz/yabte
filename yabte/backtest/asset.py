@@ -19,7 +19,7 @@ class Asset:
     name: AssetName
     """Name string."""
 
-    denom: str
+    denom: str = "USD"
     """Denominated currency."""
 
     price_round_dp: int = 2

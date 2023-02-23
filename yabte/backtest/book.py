@@ -3,13 +3,13 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from decimal import Decimal
 from itertools import groupby
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Sequence
 
 import pandas as pd
 
 from ._helpers import ensure_decimal
 from .asset import Asset, AssetName
-from .trade import Trade
+from .transaction import Trade, Transaction, CashTransaction
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class Book:
     )
     """Dictionary tracking positions of each asset."""
 
-    trades: List[Trade] = field(default_factory=list)
+    transactions: List[Transaction] = field(default_factory=list)
     """List of executed trades."""
 
     denom: str = "USD"
@@ -55,19 +55,26 @@ class Book:
     cash: Decimal = Decimal(0)
     """Cash value of book."""
 
+    rate: Decimal = Decimal(0)
+    """Daily interest rate applied to cash at end of day."""
+
+    interest_round_dp: int = 3
+    """Number of decimal places to round interest."""
+
     _history: List[List[Any]] = field(default_factory=list)
 
     @property
     def history(self) -> pd.DataFrame:
         """Dataframe with book cash, mtm and total value history."""
         return pd.DataFrame(
-            self._history, columns=["ts", "cash", "mtm", "value"]
+            self._history, columns=["ts", "cash", "mtm", "total"]
         ).set_index("ts")
 
     def __post_init__(self):
         self.cash = ensure_decimal(self.cash)
+        self.rate = ensure_decimal(self.rate)
 
-    def test_trades(self, trades: List[Trade]) -> bool:
+    def test_trades(self, trades: Sequence[Trade]) -> bool:
         """Checks whether list of trades will be successful by not failing any
         mandates."""
         for asset_name, asset_trades in groupby(trades, lambda t: t.asset_name):
@@ -79,21 +86,33 @@ class Book:
                     return False
         return True
 
-    def add_trades(self, trades: List[Trade]):
-        """Records the `trades` and adjusts internal dictionary of positions
+    def add_transactions(self, transactions: Sequence[Transaction]):
+        """Records the `transactions` and adjusts internal dictionary of positions
         and value of cash accordingly."""
-        for trade in trades:
-            self.trades.append(trade)
-            self.positions[trade.asset_name] += trade.quantity
-            self.cash -= trade.quantity * trade.price
+        for tran in transactions:
+            if isinstance(tran, Trade):
+                self.positions[tran.asset_name] += tran.quantity
+                self.cash += tran.total
+            elif isinstance(tran, CashTransaction):
+                self.cash += tran.total
+            else:
+                raise ValueError(f"Unsupport transaction class: {type(tran)}")
+
+            self.transactions.append(tran)
 
     def eod_tasks(
         self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
     ):
-        """Run end of day tasks such as book keeping.
-
-        TODO: support daily interest accumulation.
-        """
+        """Run end of day tasks such as book keeping."""
+        # accumulate continously compounded interest
+        interest = round(self.cash * (self.rate.exp() - 1), self.interest_round_dp)
+        self.add_transactions(
+            [
+                CashTransaction(
+                    ts=ts, total=interest, desc=f"interest payment on cash {self.cash}"
+                )
+            ]
+        )
         cash = float(self.cash)
         mtm = sum(day_data[an].Close * float(q) for an, q in self.positions.items())
         self._history.append([ts, cash, mtm, cash + mtm])

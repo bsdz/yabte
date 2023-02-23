@@ -11,7 +11,7 @@ import pandas as pd
 from ._helpers import ensure_decimal, ensure_enum
 from .asset import Asset, AssetName
 from .book import Book, BookName
-from .trade import Trade
+from .transaction import Trade
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +167,7 @@ class Order(OrderBase):
         ]
 
         if self.book.test_trades(trades):
-            self.book.add_trades(trades)
+            self.book.add_transactions(trades)
             self.status = OrderStatus.COMPLETE
             if self.post_complete is not None:
                 self.suborders.extend(self.post_complete(trades))
@@ -234,7 +234,7 @@ class PositionalOrder(Order):
                 )
 
         if self.book.test_trades(trades):
-            self.book.add_trades(trades)
+            self.book.add_transactions(trades)
             self.status = OrderStatus.COMPLETE
         else:
             self.status = OrderStatus.MANDATE_FAILED
@@ -317,7 +317,7 @@ class BasketOrder(OrderBase):
         ]
 
         if self.book.test_trades(trades):
-            self.book.add_trades(trades)
+            self.book.add_transactions(trades)
             self.status = OrderStatus.COMPLETE
         else:
             self.status = OrderStatus.MANDATE_FAILED
@@ -376,7 +376,7 @@ class PositionalBasketOrder(BasketOrder):
                     )
 
         if self.book.test_trades(trades):
-            self.book.add_trades(trades)
+            self.book.add_transactions(trades)
             self.status = OrderStatus.COMPLETE
         else:
             self.status = OrderStatus.MANDATE_FAILED

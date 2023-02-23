@@ -10,7 +10,7 @@ from .order import (
     PositionalOrderCheckType,
 )
 from .strategy import Strategy, StrategyRunner
-from .trade import Trade
+from .transaction import Trade, CashTransaction
 
 __all__ = [
     "Asset",
@@ -18,6 +18,7 @@ __all__ = [
     "Book",
     "BookName",
     "BookMandate",
+    "CashTransaction",
     "Order",
     "OrderSizeType",
     "OrderStatus",

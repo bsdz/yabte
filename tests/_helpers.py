@@ -3,6 +3,7 @@ from pathlib import Path
 import pandas as pd
 
 data_dir = Path(__file__).parent / "data"
+notebooks_dir = Path(__file__).parents[1] / "notebooks"
 
 
 def generate_nasdaq_dataset():

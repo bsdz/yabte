@@ -152,7 +152,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
         )
         sr.run()
 
-        th = sr.trade_history
+        th = sr.transaction_history
         th["nc"] = -th.quantity * th.price
         bch = (
             th.pivot_table(index="ts", columns="book", values="nc", aggfunc="sum")
@@ -186,7 +186,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
         )
         sr.run()
 
-        th = sr.trade_history
+        th = sr.transaction_history
         self.assertEqual(len(th.book.unique()), 2)
         bh = sr.book_history
         self.assertEqual(len(bh.columns.levels[0]), 2)
@@ -202,7 +202,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr.run()
 
         # 8 = ococococ
-        self.assertEqual(len(sr.books[0].trades), 8)
+        self.assertEqual(len(sr.books[0].transactions), 8)
 
     def test_positional_orders_notional(self):
         # test using notionals
@@ -215,7 +215,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr.run()
 
         # 8 = ococococ
-        self.assertEqual(len(sr.books[0].trades), 8)
+        self.assertEqual(len(sr.books[0].transactions), 8)
 
     def test_positional_orders_book_percent(self):
         # test using book percent
@@ -236,7 +236,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr.run()
 
         # 8 = ococococ
-        self.assertEqual(len(sr.books[0].trades), 8)
+        self.assertEqual(len(sr.books[0].transactions), 8)
 
     def test_spread_simple(self):
         strat_params = {
@@ -252,7 +252,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
         )
         sr.run()
 
-        df_trades = pd.DataFrame(sr.books[0].trades)
+        df_trades = pd.DataFrame(sr.books[0].transactions)
         self.assertEqual(len(df_trades), 6)
         self.assertEqual(len(df_trades.query("asset_name == 'GOOG'")), 3)
         self.assertEqual(len(df_trades.query("asset_name == 'MSFT'")), 3)
@@ -268,7 +268,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr.run()
 
         # 20 = 4 x ttttc
-        self.assertEqual(len(sr.books[0].trades), 20)
+        self.assertEqual(len(sr.books[0].transactions), 20)
 
     def test_limit_order(self):
         class TestLimitOrderStrat(Strategy):
@@ -293,27 +293,27 @@ class StrategyRunnerTestCase(unittest.TestCase):
             [
                 (
                     [
-                        [105, 105, 105, 105, 100],
-                        [115, 115, 115, 115, 100],
-                        [110, 110, 110, 110, 100],
+                        [105],
+                        [115],
+                        [110],
                     ],
                     [OrderStatus.CANCELLED],
                     [],
                 ),
                 (
                     [
-                        [95, 95, 95, 95, 100],
-                        [100, 100, 100, 100, 100],
-                        [105, 105, 105, 105, 100],
+                        [95],
+                        [100],
+                        [105],
                     ],
                     [],
                     [OrderStatus.OPEN],
                 ),
                 (
                     [
-                        [95, 95, 95, 95, 100],
-                        [100, 100, 100, 100, 100],
-                        [85, 85, 85, 85, 100],
+                        [95],
+                        [100],
+                        [85],
                     ],
                     [OrderStatus.COMPLETE],
                     [],
@@ -323,9 +323,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
             with self.subTest(i=ix):
                 data = pd.DataFrame(
                     data_arr,
-                    columns=pd.MultiIndex.from_product(
-                        [["ACME"], ["Open", "High", "Low", "Close", "Volume"]]
-                    ),
+                    columns=pd.MultiIndex.from_product([["ACME"], ["Close"]]),
                     index=pd.date_range(
                         start="20180102", periods=len(data_arr), freq="B"
                     ),
@@ -376,18 +374,18 @@ class StrategyRunnerTestCase(unittest.TestCase):
             [
                 (
                     [
-                        [105, 105, 105, 105, 100],
-                        [115, 115, 115, 115, 100],
-                        [110, 110, 110, 110, 100],
+                        [105],
+                        [115],
+                        [110],
                     ],
                     [(OrderStatus.COMPLETE, None)],
                     [(OrderStatus.OPEN, "my_stop")],
                 ),
                 (
                     [
-                        [95, 95, 95, 95, 100],
-                        [100, 100, 100, 100, 100],
-                        [85, 85, 85, 85, 100],
+                        [95],
+                        [100],
+                        [85],
                     ],
                     [(OrderStatus.COMPLETE, None), (OrderStatus.COMPLETE, "my_stop")],
                     [],
@@ -397,9 +395,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
             with self.subTest(i=ix):
                 data = pd.DataFrame(
                     data_arr,
-                    columns=pd.MultiIndex.from_product(
-                        [["ACME"], ["Open", "High", "Low", "Close", "Volume"]]
-                    ),
+                    columns=pd.MultiIndex.from_product([["ACME"], ["Close"]]),
                     index=pd.date_range(
                         start="20180102", periods=len(data_arr), freq="B"
                     ),

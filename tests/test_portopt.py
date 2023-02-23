@@ -6,9 +6,9 @@ import numpy.linalg as la
 import tests._unittest_numpy_extensions  # noqa
 import yabte.utilities.pandas_extension  # noqa
 from tests._helpers import generate_nasdaq_dataset
-from yabte.portopt.hierarchical_risk_parity import hrp
-from yabte.portopt.inverse_volatility import inverse_volatility
-from yabte.portopt.minimum_variance import (
+from yabte.utilities.portopt.hierarchical_risk_parity import hrp
+from yabte.utilities.portopt.inverse_volatility import inverse_volatility
+from yabte.utilities.portopt.minimum_variance import (
     minimum_variance,
     minimum_variance_numeric,
     minimum_variance_numeric_slsqp,
