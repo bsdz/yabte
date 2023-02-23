@@ -108,7 +108,7 @@ for symbol, scol, lcol in [("GOOG", "red", "green"), ("MSFT", "blue", "yellow")]
 
 ```
 
-![Output from code](./readme_image.png)
+![Output from code](https://github.com/bsdz/yabte/blob/main/readme_image.png)
 
 ## Examples
 
