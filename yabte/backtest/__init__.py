@@ -10,7 +10,7 @@ from .order import (
     PositionalOrderCheckType,
 )
 from .strategy import Strategy, StrategyRunner
-from .transaction import Trade, CashTransaction
+from .transaction import CashTransaction, Trade
 
 __all__ = [
     "Asset",

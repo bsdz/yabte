@@ -20,8 +20,9 @@ class Transaction:
 
     total: Decimal = Decimal(0)
     """Total transaction value.
-    
-    Negative values are costs and positive values are benefits."""
+
+    Negative values are costs and positive values are benefits.
+    """
 
     desc: str = ""
     """Description."""
@@ -42,7 +43,8 @@ class Trade(Transaction):
     """A frozen record of a trade transaction.
 
     A negative `quantity` represents a sell trade and a positive
-    `quantity` represents a buy trade."""
+    `quantity` represents a buy trade.
+    """
 
     quantity: Decimal
     """Traded quantity."""

@@ -9,7 +9,7 @@ import pandas as pd
 
 from ._helpers import ensure_decimal
 from .asset import Asset, AssetName
-from .transaction import Trade, Transaction, CashTransaction
+from .transaction import CashTransaction, Trade, Transaction
 
 logger = logging.getLogger(__name__)
 
@@ -87,8 +87,8 @@ class Book:
         return True
 
     def add_transactions(self, transactions: Sequence[Transaction]):
-        """Records the `transactions` and adjusts internal dictionary of positions
-        and value of cash accordingly."""
+        """Records the `transactions` and adjusts internal dictionary of
+        positions and value of cash accordingly."""
         for tran in transactions:
             if isinstance(tran, Trade):
                 self.positions[tran.asset_name] += tran.quantity
@@ -109,7 +109,9 @@ class Book:
         self.add_transactions(
             [
                 CashTransaction(
-                    ts=ts, total=interest, desc=f"interest payment on cash {self.cash}"
+                    ts=ts,
+                    total=interest,
+                    desc=f"interest payment on cash {self.cash:.2f}",
                 )
             ]
         )
