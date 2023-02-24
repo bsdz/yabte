@@ -106,15 +106,16 @@ class Book:
         """Run end of day tasks such as book keeping."""
         # accumulate continously compounded interest
         interest = round(self.cash * (self.rate.exp() - 1), self.interest_round_dp)
-        self.add_transactions(
-            [
-                CashTransaction(
-                    ts=ts,
-                    total=interest,
-                    desc=f"interest payment on cash {self.cash:.2f}",
-                )
-            ]
-        )
+        if self.rate != 0 and interest != 0:
+            self.add_transactions(
+                [
+                    CashTransaction(
+                        ts=ts,
+                        total=interest,
+                        desc=f"interest payment on cash {self.cash:.2f}",
+                    )
+                ]
+            )
         cash = float(self.cash)
         mtm = sum(day_data[an].Close * float(q) for an, q in self.positions.items())
         self._history.append([ts, cash, mtm, cash + mtm])
