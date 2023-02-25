@@ -113,7 +113,7 @@ for symbol, scol, lcol in [("GOOG", "red", "green"), ("MSFT", "blue", "yellow")]
 
 ```
 
-![Output from code](https://github.com/bsdz/yabte/blob/main/readme_image.png)
+![Output from code](https://raw.githubusercontent.com/bsdz/yabte/main/readme_image.png)
 
 ## Examples
 
