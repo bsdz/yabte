@@ -47,14 +47,6 @@ class OrderSizeType(Enum):
     """Size is a percentage of book value."""
 
 
-def _intraday_traded_price(asset_day_data) -> Decimal:
-    # TODO: support pluggable alternatives
-    if pd.notnull(asset_day_data.Low) and pd.notnull(asset_day_data.High):
-        return Decimal((asset_day_data.Low + asset_day_data.High) / 2)
-    else:
-        return Decimal(asset_day_data.Close)
-
-
 @dataclass(kw_only=True)
 class OrderBase:
     """Base class for all orders."""
@@ -127,7 +119,7 @@ class Order(OrderBase):
     def _calc_quantity_price(self, day_data, asset_map) -> Tuple[Decimal, Decimal]:
         asset = asset_map[self.asset_name]
         asset_day_data = day_data[self.asset_name]
-        trade_price = _intraday_traded_price(asset_day_data)
+        trade_price = asset.intraday_traded_price(asset_day_data)
 
         if self.size_type == OrderSizeType.QUANTITY:
             quantity = self.size
@@ -139,9 +131,7 @@ class Order(OrderBase):
         else:
             raise RuntimeError("Unsupported size type")
 
-        return round(quantity, asset.quantity_round_dp), round(
-            trade_price, asset.price_round_dp
-        )
+        return asset.round_quantity(quantity), trade_price
 
     def apply(
         self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
@@ -267,7 +257,10 @@ class BasketOrder(OrderBase):
     ) -> List[Tuple[Decimal, Decimal]]:
         assets = [asset_map[an] for an in self.asset_names]
         assets_day_data = [day_data[an] for an in self.asset_names]
-        trade_prices = [_intraday_traded_price(add) for add in assets_day_data]
+        trade_prices = [
+            asset.intraday_traded_price(add)
+            for asset, add in zip(assets, assets_day_data)
+        ]
 
         if self.size_type == OrderSizeType.QUANTITY:
             quantities = [self.size * w for w in self.weights]
@@ -294,7 +287,7 @@ class BasketOrder(OrderBase):
             raise RuntimeError("Unsupported size type")
 
         return [
-            (round(q, a.quantity_round_dp), round(tp, a.price_round_dp))
+            (a.round_quantity(q), tp)
             for a, q, tp in zip(assets, quantities, trade_prices)
         ]
 

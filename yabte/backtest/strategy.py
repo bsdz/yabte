@@ -157,9 +157,8 @@ class StrategyRunner:
     consist of order pandas timestamps.
     """
 
-    asset_meta: Dict[AssetName, Dict[str, Any]]
-    """Dictionary mapping each asset to a dictionary of meta data such as
-    currency denomination."""
+    assets: List[Asset]
+    """Assets available to strategy."""
 
     strat_classes: List[Type[Strategy]]
     """Strategy classes to be called within this runner."""
@@ -222,10 +221,8 @@ class StrategyRunner:
     def run(self):
         """Execute each strategy through time."""
 
-        # TODO: make available where necessary
-        asset_map = {
-            name: Asset(name=name, **kwds) for name, kwds in self.asset_meta.items()
-        }
+        # made available where necessary
+        asset_map = {asset.name: asset for asset in self.assets}
         book_map = {book.name: book for book in self.books}
 
         # calendar

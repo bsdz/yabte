@@ -7,6 +7,7 @@ import pandas as pd
 
 from tests._helpers import generate_nasdaq_dataset
 from yabte.backtest import (
+    Asset,
     BasketOrder,
     Book,
     Order,
@@ -142,12 +143,12 @@ class TestBasketOrderSizeStrat(Strategy):
 class StrategyRunnerTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.asset_meta, cls.df_combined = generate_nasdaq_dataset()
+        cls.assets, cls.df_combined = generate_nasdaq_dataset()
 
     def test_sma_crossover(self):
         sr = StrategyRunner(
             data=self.df_combined,
-            asset_meta=self.asset_meta,
+            assets=self.assets,
             strat_classes=[TestSMAXOStrat],
         )
         sr.run()
@@ -180,7 +181,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
 
         sr = StrategyRunner(
             data=self.df_combined,
-            asset_meta=self.asset_meta,
+            assets=self.assets,
             strat_classes=[TestSMAXOMultipleBookStrat],
             books=books,
         )
@@ -195,7 +196,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
         # test using quantities
         sr = StrategyRunner(
             data=self.df_combined,
-            asset_meta=self.asset_meta,
+            assets=self.assets,
             strat_classes=[TestPosOrderSizeStrat],
             strat_params={"size_type": OrderSizeType.QUANTITY, "size_factor": 100},
         )
@@ -208,7 +209,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
         # test using notionals
         sr = StrategyRunner(
             data=self.df_combined,
-            asset_meta=self.asset_meta,
+            assets=self.assets,
             strat_classes=[TestPosOrderSizeStrat],
             strat_params={"size_type": OrderSizeType.NOTIONAL, "size_factor": 1000},
         )
@@ -225,7 +226,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
 
         sr = StrategyRunner(
             data=self.df_combined,
-            asset_meta=self.asset_meta,
+            assets=self.assets,
             strat_classes=[TestPosOrderSizeStrat],
             strat_params={
                 "size_type": OrderSizeType.BOOK_PERCENT,
@@ -246,7 +247,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
         }
         sr = StrategyRunner(
             data=self.df_combined,
-            asset_meta=self.asset_meta,
+            assets=self.assets,
             strat_classes=[TestSpreadSimpleStrat],
             strat_params=strat_params,
         )
@@ -261,7 +262,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
         # test using quantities
         sr = StrategyRunner(
             data=self.df_combined,
-            asset_meta=self.asset_meta,
+            assets=self.assets,
             strat_classes=[TestBasketOrderSizeStrat],
             strat_params={"size_type": OrderSizeType.QUANTITY},
         )
@@ -331,7 +332,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
 
                 sr = StrategyRunner(
                     data=data,
-                    asset_meta={"ACME": {"denom": "USD"}},
+                    assets=[Asset(name="ACME", denom="USD")],
                     strat_classes=[TestLimitOrderStrat],
                 )
                 sr.run()
@@ -403,7 +404,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
 
                 sr = StrategyRunner(
                     data=data,
-                    asset_meta={"ACME": {"denom": "USD"}},
+                    assets=[Asset(name="ACME", denom="USD")],
                     strat_classes=[TestStopLossOrderStrat],
                 )
                 sr.run()

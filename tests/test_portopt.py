@@ -19,7 +19,7 @@ from yabte.utilities.portopt.minimum_variance import (
 class PortOptTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.asset_meta, cls.df_combined = generate_nasdaq_dataset()
+        cls.assets, cls.df_combined = generate_nasdaq_dataset()
         cls.closes = cls.df_combined.loc[:, (slice(None), "Close")].droplevel(
             axis=1, level=1
         )
