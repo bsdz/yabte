@@ -43,3 +43,21 @@ class Asset:
     def round_quantity(self, quantity) -> Decimal:
         """Round `quantity`."""
         return round(quantity, self.quantity_round_dp)
+
+    def check_and_fix_data(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Checks dataframe `data` has correct fields and fixes columns where necessary."""
+
+        # TODO: check low <= open, high, close & high >= open, low, close
+        # TODO: check vol >= 0
+
+        # check each asset has required fields
+        required_fields = {"Close"}
+        missing_req_fields = required_fields - set(data.columns)
+        if len(missing_req_fields):
+            raise ValueError(
+                f"data columns multiindex requires fields {required_fields} and missing {missing_req_fields}"
+            )
+
+        # reindex columns with expected fields
+        expected_fields = ["High", "Low", "Open", "Close", "Volume"]
+        return data.reindex(expected_fields, axis=1)

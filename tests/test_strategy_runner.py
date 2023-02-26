@@ -222,7 +222,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
         # test using book percent
 
         # books default to zero cash
-        book = Book(name="PrimaryBook", cash=Decimal("1000000"))
+        book = Book(name="Main", cash=Decimal("1000000"))
 
         sr = StrategyRunner(
             data=self.df_combined,

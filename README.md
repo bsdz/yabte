@@ -82,7 +82,7 @@ df_msft = pd.read_csv(data_dir / "MSFT.csv", index_col=0, parse_dates=[0])
 df_msft.columns = pd.MultiIndex.from_tuples([("MSFT", f) for f in df_msft.columns])
 
 # create a book with 100000 cash
-book = Book(name="PrimaryBook", cash="100000")
+book = Book(name="Main", cash="100000")
 
 # run our strategy
 sr = StrategyRunner(
@@ -104,10 +104,10 @@ ax = bvh.plot(title="Book Value History")
 for symbol, scol, lcol in [("GOOG", "red", "green"), ("MSFT", "blue", "yellow")]:
     long_ix = th.query(f"asset_name == '{symbol}' and quantity > 0").ts
     short_ix = th.query(f"asset_name == '{symbol}' and quantity < 0").ts
-    bvh.loc[long_ix].rename(columns={"PrimaryBook": f"{symbol} Short"}).plot(
+    bvh.loc[long_ix].rename(columns={"Main": f"{symbol} Short"}).plot(
         color=scol, marker="v", markersize=5, linestyle="None", ax=ax
     )
-    bvh.loc[short_ix].rename(columns={"PrimaryBook": f"{symbol} Long"}).plot(
+    bvh.loc[short_ix].rename(columns={"Main": f"{symbol} Long"}).plot(
         color=lcol, marker="^", markersize=5, linestyle="None", ax=ax
     )
 

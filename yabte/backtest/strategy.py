@@ -4,12 +4,13 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from itertools import product
 from typing import Any, Dict, List, Optional, Type
+from functools import cache
 
 import numpy as np
 import pandas as pd
 
 from .asset import Asset, AssetName
-from .book import Book, BookMandate
+from .book import Book, BookMandate, BookName
 from .order import Order, OrderStatus
 
 logger = logging.getLogger(__name__)
@@ -35,24 +36,24 @@ class Strategy:
     params: pd.Series
     """Parameters supplied to strategy."""
 
-    books: List[Book]
-    """List of books."""
+    books: Dict[BookName, Book]
+    """Dictionary of books."""
+
+    assets: Dict[AssetName, Asset]
+    """Dictionary of assets."""
 
     _ts = None
     _data_lock = True
-    _ts_lock = True
-    _mask_hlc = False
+    _mask_open = False
 
     @property
     def ts(self):
         """Stores the current timestamp."""
         return self._ts
 
-    @ts.setter
-    def ts(self, value: pd.Timestamp):
-        if self._ts_lock:
-            raise RuntimeError("Attempt to write ts")
-        self._ts = value
+    def _set_ts(self, ts):
+        """Internal method to update timestep to current `ts`"""
+        self._ts = ts
 
     @property
     def data(self) -> pd.DataFrame:
@@ -63,7 +64,7 @@ class Strategy:
             return self._data
         else:
             df_t = self._data.loc[: self.ts, :]
-            if not self._mask_hlc:
+            if not self._mask_open:
                 data = df_t
             else:
                 row_indexer = df_t.index == df_t.index[-1]
@@ -101,7 +102,7 @@ class Strategy:
         pass
 
 
-def _check_data(df):
+def _check_data(df, asset_map):
     """Check data structure correct."""
 
     if not isinstance(df.index, pd.DatetimeIndex):
@@ -116,27 +117,20 @@ def _check_data(df):
         raise ValueError("data columns multiindex must have 2 levels")
 
     # for cartesian products
-    asset_names = df.columns.levels[0]
-
-    # check each asset has required fields
-    required_fields = ["Close"]
-    required_cols = pd.MultiIndex.from_tuples(product(asset_names, required_fields))
-    missing_req_cols = required_cols.difference(df.columns, sort=None)
-    if len(missing_req_cols):
+    asset_names_data = df.columns.levels[0]
+    assets_missing_data = set(asset_map.keys()) - set(asset_names_data)
+    if len(assets_missing_data):
         raise ValueError(
-            f"data columns multiindex requires fields {required_fields} and missing {missing_req_cols.tolist()}"
+            f"some assets are missing corresponding data: {assets_missing_data}"
         )
 
-    # reindex columns with expected fields
-    expected_fields = ["High", "Low", "Open", "Close", "Volume"]
-    expected_cols = pd.MultiIndex.from_tuples(product(asset_names, expected_fields))
-    df = df.reindex(expected_cols, axis=1)
+    # check and fix data for each asset
+    dfs = {
+        asset_name: asset.check_and_fix_data(df[asset_name])
+        for asset_name, asset in asset_map.items()
+    }
 
-    # TODO: check low <= open, high, close & high >= open, low, close
-    # TODO: check vol >= 0
-    # TODO: check assets match asset_meta
-
-    return df
+    return pd.concat(dfs, axis=1)
 
 
 @dataclass(kw_only=True)
@@ -145,7 +139,7 @@ class StrategyRunner:
 
     Orders are captured in `orders_processed` and `orders_unprocessed`.
     `books` is a list of books and if none provided a single book is
-    created call 'PrimaryBook'. After execution summary book and trade
+    created called 'Main'. After execution summary book and trade
     histories are captured in `book_history` and `transaction_history`.
     """
 
@@ -173,8 +167,18 @@ class StrategyRunner:
     """Books available to strategies.
 
     If not supplied will be populated with single book named
-    'PrimaryBook' denominated in USD.
+    'Main' denominated in USD.
     """
+
+    @property
+    def book_map(self) -> Dict[BookName, Book]:
+        """Mapping from book name to book instance."""
+        return {book.name: book for book in self.books}
+
+    @property
+    def asset_map(self) -> Dict[AssetName, Asset]:
+        """Mapping from asset name to asset instance."""
+        return {asset.name: asset for asset in self.assets}
 
     _orders_unprocessed: Orders = field(default_factory=Orders)
 
@@ -212,18 +216,18 @@ class StrategyRunner:
         )
 
     def __post_init__(self):
-        self.data = _check_data(self.data)
+        self.data = _check_data(self.data, self.asset_map)
 
         # set up books
         if not self.books:
-            self.books = [Book(name="PrimaryBook", mandates=self.mandates)]
+            self.books = [Book(name="Main", mandates=self.mandates)]
 
     def run(self):
         """Execute each strategy through time."""
 
         # made available where necessary
-        asset_map = {asset.name: asset for asset in self.assets}
-        book_map = {book.name: book for book in self.books}
+        asset_map = self.asset_map
+        book_map = self.book_map
 
         # calendar
         calendar = self.data.index
@@ -233,7 +237,8 @@ class StrategyRunner:
             cls(
                 orders=self._orders_unprocessed,
                 params=pd.Series(self.strat_params, dtype=np.object0),
-                books=self.books,
+                books=book_map,
+                assets=asset_map,
             )
             for cls in self.strat_classes
         ]
@@ -250,12 +255,10 @@ class StrategyRunner:
             # open
             for strat in self._strategies:
                 # provide window
-                strat._ts_lock = False
-                strat._ts = ts
-                strat._ts_lock = True
-                strat._mask_hlc = True
+                strat._set_ts(ts)
+                strat._mask_open = True
                 strat.on_open()
-                strat._mask_hlc = False
+                strat._mask_open = False
 
             # order applied with ts's data
             day_data = self.data.loc[
@@ -276,6 +279,7 @@ class StrategyRunner:
 
                 # set book attribute if needed
                 if not isinstance(order.book, Book):
+                    # fall back to first available book
                     order.book = book_map.get(order.book, self.books[0])
 
                 order.apply(ts, day_data, asset_map)
@@ -292,9 +296,7 @@ class StrategyRunner:
             # close
             for strat in self._strategies:
                 # provide window
-                strat._ts_lock = False
-                strat._ts = ts
-                strat._ts_lock = True
+                strat._set_ts(ts)
                 strat.on_close()
 
             # run book end-of-day tasks
