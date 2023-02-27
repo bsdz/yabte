@@ -45,7 +45,8 @@ class Asset:
         return round(quantity, self.quantity_round_dp)
 
     def check_and_fix_data(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Checks dataframe `data` has correct fields and fixes columns where necessary."""
+        """Checks dataframe `data` has correct fields and fixes columns where
+        necessary."""
 
         # TODO: check low <= open, high, close & high >= open, low, close
         # TODO: check vol >= 0

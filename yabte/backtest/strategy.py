@@ -2,9 +2,9 @@ import logging
 from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass, field
+from functools import cache
 from itertools import product
 from typing import Any, Dict, List, Optional, Type
-from functools import cache
 
 import numpy as np
 import pandas as pd
@@ -166,8 +166,8 @@ class StrategyRunner:
     books: List[Book] = field(default_factory=list)
     """Books available to strategies.
 
-    If not supplied will be populated with single book named
-    'Main' denominated in USD.
+    If not supplied will be populated with single book named 'Main'
+    denominated in USD.
     """
 
     @property
