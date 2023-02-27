@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Sequence
 
 import pandas as pd
 
@@ -30,6 +31,14 @@ class Asset:
 
     quantity_round_dp: int = 2
     """Number of decimal places to round quantities to."""
+
+    @property
+    def fields_available_at_open(self) -> Sequence[str]:
+        """A sequence of field names available at open.
+
+        Any fields not in this sequence will be masked out.
+        """
+        return ["Open"]
 
     def intraday_traded_price(self, asset_day_data) -> Decimal:
         """Calculate price during market hours with given row of

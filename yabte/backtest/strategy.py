@@ -2,8 +2,7 @@ import logging
 from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass, field
-from functools import cache
-from itertools import product
+from itertools import chain, product
 from typing import Any, Dict, List, Optional, Type
 
 import numpy as np
@@ -55,6 +54,20 @@ class Strategy:
         """Internal method to update timestep to current `ts`"""
         self._ts = ts
 
+    def _get_col_indexer(self):
+        # cache this call for hopefully a small speed up
+        if not hasattr(self, "_col_indexer"):
+            mix = pd.MultiIndex.from_tuples(
+                chain(
+                    *[
+                        product([asset_name], asset.fields_available_at_open)
+                        for asset_name, asset in self.assets.items()
+                    ]
+                )
+            )
+            self._col_indexer = ~self._data.columns.isin(mix)
+        return self._col_indexer
+
     @property
     def data(self) -> pd.DataFrame:
         """Provides window of data available up to current timestamp `self.ts`
@@ -68,9 +81,9 @@ class Strategy:
                 data = df_t
             else:
                 row_indexer = df_t.index == df_t.index[-1]
-                col_indexer = df_t.columns.isin(
-                    ["High", "Low", "Close", "Volume"], level=1
-                )
+                # generate mask from asset instances, some assets
+                # might support different field masks
+                col_indexer = self._get_col_indexer()
                 mask = row_indexer[:, None] & col_indexer
                 data = df_t.mask(mask)
             return data
@@ -261,9 +274,7 @@ class StrategyRunner:
                 strat._mask_open = False
 
             # order applied with ts's data
-            day_data = self.data.loc[
-                ts, (slice(None), ["High", "Low", "Open", "Close"])
-            ]
+            day_data = self.data.loc[ts, :]
 
             # sort orders by priority
             ou_sorted = sorted(

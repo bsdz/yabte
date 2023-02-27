@@ -271,6 +271,68 @@ class StrategyRunnerTestCase(unittest.TestCase):
         # 20 = 4 x ttttc
         self.assertEqual(len(sr.books[0].transactions), 20)
 
+    def test_on_open_masking(self):
+        class TestOnOpenMaskStrat(Strategy):
+            def on_open(self2):
+                # only latest record masked
+                if len(self2.data) > 1:
+                    self.assertTrue(
+                        all(
+                            self2.data.iloc[:-1]
+                            .loc[
+                                :,
+                                (
+                                    slice(None),
+                                    ("Open", "High", "Low", "Close", "Volume"),
+                                ),
+                            ]
+                            .notnull()
+                        )
+                    )
+
+                # these fields should be masked at open
+                self.assertTrue(
+                    all(
+                        self2.data.iloc[-1:]
+                        .loc[:, (slice(None), ("High", "Low", "Close", "Volume"))]
+                        .isnull()
+                    )
+                )
+
+                # this field should be unmasked
+                self.assertTrue(
+                    all(self2.data.iloc[-1:].loc[:, (slice(None), "Open")].notnull())
+                )
+
+            def on_close(self2):
+                # at close all fields available
+                self.assertTrue(
+                    all(
+                        self2.data.loc[
+                            :, (slice(None), ("Open", "High", "Low", "Close", "Volume"))
+                        ].notnull()
+                    )
+                )
+
+        data = pd.DataFrame(
+            [
+                [100] * 10,
+                [100] * 10,
+                [100] * 10,
+            ],
+            columns=pd.MultiIndex.from_product(
+                [["ACME", "BOKO"], ["High", "Low", "Open", "Close", "Volume"]]
+            ),
+            index=pd.date_range(start="20180102", periods=3, freq="B"),
+        )
+
+        sr = StrategyRunner(
+            data=data,
+            assets=[Asset(name="ACME"), Asset(name="BOKO")],
+            strat_classes=[TestOnOpenMaskStrat],
+        )
+        sr.run()
+
     def test_limit_order(self):
         class TestLimitOrderStrat(Strategy):
             def on_close(self):
