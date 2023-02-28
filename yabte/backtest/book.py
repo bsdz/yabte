@@ -117,5 +117,8 @@ class Book:
                 ]
             )
         cash = float(self.cash)
-        mtm = sum(day_data[an].Close * float(q) for an, q in self.positions.items())
+        mtm = sum(
+            day_data[asset_map[an].data_label].Close * float(q)
+            for an, q in self.positions.items()
+        )
         self._history.append([ts, cash, mtm, cash + mtm])

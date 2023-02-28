@@ -12,13 +12,8 @@ class AssetName(str):
 
 
 @dataclass(kw_only=True)
-class Asset:
-    """Anything that has a price.
-
-    The price currency is `denom` and default rounding controlled by
-    `price_round_dp`. The quantity rounding is controled by
-    `quantity_round_dp`.
-    """
+class AssetBase:
+    """Anything that has a price."""
 
     name: AssetName
     """Name string."""
@@ -32,42 +27,64 @@ class Asset:
     quantity_round_dp: int = 2
     """Number of decimal places to round quantities to."""
 
+    data_label: str | None = None
+    """`StrategyRunner.data` column index 1st level label. Defaults to `name`"""
+
+    def __post_init__(self):
+        if self.data_label is None:
+            self.data_label = self.name
+
+    def round_quantity(self, quantity) -> Decimal:
+        """Round `quantity`."""
+        return round(quantity, self.quantity_round_dp)
+
     @property
     def fields_available_at_open(self) -> Sequence[str]:
         """A sequence of field names available at open.
 
         Any fields not in this sequence will be masked out.
         """
-        return ["Open"]
+        return []
 
     def intraday_traded_price(self, asset_day_data) -> Decimal:
         """Calculate price during market hours with given row of
         `asset_day_data`."""
+        raise NotImplementedError("The apply methods needs to be implemented.")
+
+    def check_and_fix_data(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Checks dataframe `data` has correct fields and fixes columns where
+        necessary."""
+        raise NotImplementedError("The apply methods needs to be implemented.")
+
+
+@dataclass(kw_only=True)
+class Asset(AssetBase):
+    """Assets whose price history is represented by High, Low, Open, Close and Volume fields."""
+
+    @property
+    def fields_available_at_open(self) -> Sequence[str]:
+        return ["Open"]
+
+    def intraday_traded_price(self, asset_day_data) -> Decimal:
         if pd.notnull(asset_day_data.Low) and pd.notnull(asset_day_data.High):
             p = Decimal((asset_day_data.Low + asset_day_data.High) / 2)
         else:
             p = Decimal(asset_day_data.Close)
         return round(p, self.price_round_dp)
 
-    def round_quantity(self, quantity) -> Decimal:
-        """Round `quantity`."""
-        return round(quantity, self.quantity_round_dp)
-
     def check_and_fix_data(self, data: pd.DataFrame) -> pd.DataFrame:
-        """Checks dataframe `data` has correct fields and fixes columns where
-        necessary."""
-
         # TODO: check low <= open, high, close & high >= open, low, close
-        # TODO: check vol >= 0
+        # TODO: check volume >= 0
 
         # check each asset has required fields
         required_fields = {"Close"}
         missing_req_fields = required_fields - set(data.columns)
         if len(missing_req_fields):
             raise ValueError(
-                f"data columns multiindex requires fields {required_fields} and missing {missing_req_fields}"
+                f"data columns index requires fields {required_fields} and missing {missing_req_fields}"
             )
 
-        # reindex columns with expected fields
+        # reindex columns with expected fields + additional fields
         expected_fields = ["High", "Low", "Open", "Close", "Volume"]
-        return data.reindex(expected_fields, axis=1)
+        other_fields = list(set(data.columns) - set(expected_fields))
+        return data.reindex(expected_fields + other_fields, axis=1)

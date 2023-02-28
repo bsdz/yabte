@@ -60,7 +60,7 @@ class Strategy:
             mix = pd.MultiIndex.from_tuples(
                 chain(
                     *[
-                        product([asset_name], asset.fields_available_at_open)
+                        product([asset.data_label], asset.fields_available_at_open)
                         for asset_name, asset in self.assets.items()
                     ]
                 )
@@ -130,8 +130,9 @@ def _check_data(df, asset_map):
         raise ValueError("data columns multiindex must have 2 levels")
 
     # for cartesian products
-    asset_names_data = df.columns.levels[0]
-    assets_missing_data = set(asset_map.keys()) - set(asset_names_data)
+    data_labels_data = set(df.columns.levels[0])
+    data_labels_asset = {a.data_label for a in asset_map.values()}
+    assets_missing_data = data_labels_asset - data_labels_data
     if len(assets_missing_data):
         raise ValueError(
             f"some assets are missing corresponding data: {assets_missing_data}"
@@ -139,7 +140,7 @@ def _check_data(df, asset_map):
 
     # check and fix data for each asset
     dfs = {
-        asset_name: asset.check_and_fix_data(df[asset_name])
+        asset.data_label: asset.check_and_fix_data(df[asset.data_label])
         for asset_name, asset in asset_map.items()
     }
 

@@ -118,7 +118,7 @@ class Order(OrderBase):
 
     def _calc_quantity_price(self, day_data, asset_map) -> Tuple[Decimal, Decimal]:
         asset = asset_map[self.asset_name]
-        asset_day_data = day_data[self.asset_name]
+        asset_day_data = day_data[asset.data_label]
         trade_price = asset.intraday_traded_price(asset_day_data)
 
         if self.size_type == OrderSizeType.QUANTITY:
@@ -256,7 +256,7 @@ class BasketOrder(OrderBase):
         self, day_data, asset_map
     ) -> List[Tuple[Decimal, Decimal]]:
         assets = [asset_map[an] for an in self.asset_names]
-        assets_day_data = [day_data[an] for an in self.asset_names]
+        assets_day_data = [day_data[a.data_label] for a in assets]
         trade_prices = [
             asset.intraday_traded_price(add)
             for asset, add in zip(assets, assets_day_data)
