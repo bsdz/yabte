@@ -28,7 +28,10 @@ class AssetBase:
     """Number of decimal places to round quantities to."""
 
     data_label: str | None = None
-    """`StrategyRunner.data` column index 1st level label. Defaults to `name`"""
+    """`StrategyRunner.data` column index 1st level label.
+
+    Defaults to `name`
+    """
 
     def __post_init__(self):
         if self.data_label is None:
@@ -59,7 +62,8 @@ class AssetBase:
 
 @dataclass(kw_only=True)
 class Asset(AssetBase):
-    """Assets whose price history is represented by High, Low, Open, Close and Volume fields."""
+    """Assets whose price history is represented by High, Low, Open, Close and
+    Volume fields."""
 
     @property
     def fields_available_at_open(self) -> Sequence[str]:
