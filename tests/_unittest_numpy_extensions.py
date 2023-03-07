@@ -1,21 +1,19 @@
-"""monkey patch unittest to include numpy assertions. Maps numpy
-assert_func_name to numpyAssertFuncName.
-
-Example:
-
-    class NumpyWrapperTest(unittest.TestCase):
-        def test_allclose_example(self):
-            a1 = np.array([1.,2.,3.])
-            self.numpyAssertAllclose(a1, np.array([1.,2.,3.1]))
-
-    suite = unittest.TestSuite()
-    suite.addTest(NumpyWrapperTest("test_allclose_example"))
-    unittest.TextTestRunner().run(suite)
-"""
-
 import unittest
 
 import numpy.testing as nptu
+
+__all__ = ["NumpyTestCase"]
+
+
+class NumpyTestCase(unittest.TestCase):
+    """Specialized TestCase which includes numpy test assertion functions and
+    maps them from assert_func_name to self.numpyAssertFuncName.
+
+    class NumpyTest(NumpyTestCase):
+    def test_allclose_example(self):
+        a1 = np.array([1.,2.,3.])
+        self.numpyAssertAllclose(a1, np.array([1.,2.,3.1]))
+    """
 
 
 def make_test_wrapper(fn):
@@ -31,4 +29,19 @@ def make_test_wrapper(fn):
 for fn in nptu.__dict__:
     if fn.startswith("assert") and not fn.endswith("_"):
         new_name = "numpy" + fn.title().replace("_", "")
-        setattr(unittest.TestCase, new_name, make_test_wrapper(fn))
+        setattr(NumpyTestCase, new_name, make_test_wrapper(fn))
+
+
+if __name__ == "__main__":
+    import numpy as np
+
+    class _NumpyTest(NumpyTestCase):
+        def test_allclose_example(self):
+            self.numpyAssertAllclose(
+                np.array([1.0, 2.0, 3.0]), np.array([1.0, 2.0, 3.1])
+            )
+
+    # should fail!
+    suite = unittest.TestSuite()
+    suite.addTest(_NumpyTest("test_allclose_example"))
+    unittest.TextTestRunner().run(suite)

@@ -3,9 +3,9 @@ import unittest
 import numpy as np
 import numpy.linalg as la
 
-import tests._unittest_numpy_extensions  # noqa
 import yabte.utilities.pandas_extension  # noqa
 from tests._helpers import generate_nasdaq_dataset
+from tests._unittest_numpy_extensions import NumpyTestCase
 from yabte.utilities.lagrangian import Lagrangian
 from yabte.utilities.portopt.hierarchical_risk_parity import hrp
 from yabte.utilities.portopt.inverse_volatility import inverse_volatility
@@ -16,7 +16,7 @@ from yabte.utilities.portopt.minimum_variance import (
 )
 
 
-class PortOptTestCase(unittest.TestCase):
+class PortOptTestCase(NumpyTestCase):
     @classmethod
     def setUpClass(cls):
         cls.assets, cls.df_combined = generate_nasdaq_dataset()

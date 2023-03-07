@@ -12,8 +12,11 @@ and :math:`dW_t` is a Weiner process.
 
 import numpy as np
 
+from yabte.utilities.simulation.weiner import weiner_simulate_paths
+
 
 def gbm_simulate_paths(
+    S0: float,
     mu: np.ndarray,
     sigma: np.ndarray,
     R: np.ndarray,
@@ -24,7 +27,7 @@ def gbm_simulate_paths(
 ):
     """Generate simulated paths using vectorised numpy calls.
 
-    `mu` is the drift, `sigma` is volatility, `R` a correlation
+    `S0` is initial value, `mu` is the drift, `sigma` is volatility, `R` a correlation
     matrix, `T` is the time span, `n_steps` is how many time steps,
     `n_sims` the number of simulations and `rng` a numpy random
     number generator (optional).
@@ -34,33 +37,20 @@ def gbm_simulate_paths(
 
     mu = np.atleast_1d(mu)
     sigma = np.atleast_1d(sigma)
-    R = np.atleast_2d(R)
 
     if rng is None:
         rng = np.random.default_rng()
 
     r = mu  # mu = rf in risk neutral framework
     dt = T / n_steps
-    k = len(mu)
-
-    # simulate 'n_sims' price paths of `k` sized asset groups with 'n_steps' timesteps
-    dws = rng.multivariate_normal(
-        mean=np.zeros_like(mu), cov=R, size=(n_steps, n_sims), check_valid="raise"
-    )
-
-    # use closed form solution
 
     # duplicate copies of time axis to simplify broadcasting later
     ts = np.linspace(0, T, n_steps, endpoint=False)
     ts = np.repeat(ts[:, np.newaxis], n_sims, axis=1)[:, :, np.newaxis]
 
-    # use cumsum as speed up
-    ws = np.cumsum(dws, axis=0)
-
-    # start all at one by prefixing newaxis
-    return np.concatenate(
-        [
-            np.ones((1, n_sims, k)),
-            np.exp((r - sigma**2 / 2) * ts + sigma * ws * np.sqrt(dt))[:-1, :],
-        ]
+    ws = weiner_simulate_paths(
+        n_steps=n_steps, n_sims=n_sims, stdev=np.sqrt(dt), R=R, rng=rng
     )
+
+    # use closed form solution
+    return S0 * np.exp((r - sigma**2 / 2) * ts + sigma * ws)

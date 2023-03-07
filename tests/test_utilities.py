@@ -3,13 +3,13 @@ import unittest
 import numpy as np
 import numpy.linalg as la
 
-import tests._unittest_numpy_extensions  # noqa
 import yabte.utilities.pandas_extension  # noqa
 from tests._helpers import generate_nasdaq_dataset
+from tests._unittest_numpy_extensions import NumpyTestCase
 from yabte.utilities.lagrangian import Lagrangian
 
 
-class UtilitiesTestCase(unittest.TestCase):
+class UtilitiesTestCase(NumpyTestCase):
     @classmethod
     def setUpClass(cls):
         cls.assets, cls.df_combined = generate_nasdaq_dataset()
