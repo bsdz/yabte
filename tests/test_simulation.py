@@ -5,7 +5,7 @@ import numpy as np
 from tests._unittest_numpy_extensions import NumpyTestCase
 from yabte.utilities.simulation.geometric_brownian_motion import gbm_simulate_paths
 from yabte.utilities.simulation.heston import heston_simulate_paths
-from yabte.utilities.simulation.weiner import weiner
+from yabte.utilities.simulation.weiner import weiner_simulate_paths
 
 HAS_SCIPY = True
 try:
@@ -36,7 +36,7 @@ class SimulationTestCase(NumpyTestCase):
 
         # simulate data
         # p[steps, sims, path]
-        ws = weiner(n_steps=N, n_sims=M, stdev=1, R=R, rng=self.rng)
+        ws = weiner_simulate_paths(n_steps=N, n_sims=M, stdev=1, R=R, rng=self.rng)
         dws = np.diff(ws, axis=0)
 
         # test weiner properities
@@ -56,7 +56,7 @@ class SimulationTestCase(NumpyTestCase):
 
         # simulate data
         # p[steps, sims, path]
-        ws = weiner(n_steps=N, n_sims=M, stdev=1, R=R, rng=self.rng)
+        ws = weiner_simulate_paths(n_steps=N, n_sims=M, stdev=1, R=R, rng=self.rng)
         dws = np.diff(ws, axis=0)
 
         # normal differences
@@ -139,7 +139,9 @@ class SimulationTestCase(NumpyTestCase):
             n_sims=1,
         )
 
-        x = 1
+        # TODO: better tests
+        self.assertEqual(sum(S.shape), 101)
+        self.assertEqual(sum(v.shape), 101)
 
 
 if __name__ == "__main__":
