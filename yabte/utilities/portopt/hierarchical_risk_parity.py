@@ -2,7 +2,7 @@ r"""Calculate portfolio weights with hierarchical risk parity.
 
 That is to employ hierarchical tree clustering on the correlation distance
 matrix and quasi-diagonalisation followed by recursive bisection to determine
-the weights. See [LP] for further details.
+the weights. See [LP]_ for further details.
 
 
 References

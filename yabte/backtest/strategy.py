@@ -250,7 +250,7 @@ class StrategyRunner:
         self._strategies = [
             cls(
                 orders=self._orders_unprocessed,
-                params=pd.Series(self.strat_params, dtype=np.object0),
+                params=pd.Series(self.strat_params, dtype=object),
                 books=book_map,
                 assets=asset_map,
             )
