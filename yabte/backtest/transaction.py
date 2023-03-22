@@ -55,6 +55,9 @@ class Trade(Transaction):
     asset_name: AssetName
     """Traded asset."""
 
+    order_label: str | None
+    """Associated Order label"""
+
     def __post_init__(self):
         super().__post_init__()
 
@@ -70,5 +73,7 @@ class Trade(Transaction):
         # total represents cost/benefit when buy/sell
         object.__setattr__(self, "total", -self.quantity * self.price)
         object.__setattr__(
-            self, "desc", f"{'sell' if self.quantity < 0 else 'buy'} {self.asset_name}"
+            self,
+            "desc",
+            f"{'sell' if self.quantity < 0 else 'buy'} {self.asset_name}{'; ' + self.order_label if self.order_label else ''}",
         )

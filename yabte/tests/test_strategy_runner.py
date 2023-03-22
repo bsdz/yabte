@@ -5,7 +5,7 @@ from decimal import Decimal
 import numpy as np
 import pandas as pd
 
-from tests._helpers import generate_nasdaq_dataset
+from yabte.tests._helpers import generate_nasdaq_dataset
 from yabte.backtest import (
     Asset,
     BasketOrder,

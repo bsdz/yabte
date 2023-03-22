@@ -1,6 +1,6 @@
 import unittest
 
-from tests._helpers import notebooks_dir
+from yabte.tests._helpers import notebooks_dir
 
 HAS_NBFORMAT = True
 try:

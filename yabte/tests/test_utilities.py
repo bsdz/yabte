@@ -4,8 +4,8 @@ import numpy as np
 import numpy.linalg as la
 
 import yabte.utilities.pandas_extension  # noqa
-from tests._helpers import generate_nasdaq_dataset
-from tests._unittest_numpy_extensions import NumpyTestCase
+from yabte.tests._helpers import generate_nasdaq_dataset
+from yabte.tests._unittest_numpy_extensions import NumpyTestCase
 from yabte.utilities.lagrangian import Lagrangian
 
 

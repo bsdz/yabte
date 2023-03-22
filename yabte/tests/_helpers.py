@@ -5,7 +5,7 @@ import pandas as pd
 from yabte.backtest.asset import Asset
 
 data_dir = Path(__file__).parent / "data"
-notebooks_dir = Path(__file__).parents[1] / "notebooks"
+notebooks_dir = Path(__file__).parents[2] / "notebooks"
 
 
 def generate_nasdaq_dataset():

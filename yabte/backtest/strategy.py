@@ -122,6 +122,8 @@ def _check_data(df, asset_map):
         raise ValueError("data index must be a datetimeindex")
     if not df.index.is_monotonic_increasing:
         raise ValueError("data needs to have increasing index")
+    if not df.index.is_unique:
+        raise ValueError("data index must be unique")
 
     # colum level 1 = asset, level 2 = field
     if not isinstance(df.columns, pd.MultiIndex):

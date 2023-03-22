@@ -4,8 +4,8 @@ import numpy as np
 import numpy.linalg as la
 
 import yabte.utilities.pandas_extension  # noqa
-from tests._helpers import generate_nasdaq_dataset
-from tests._unittest_numpy_extensions import NumpyTestCase
+from yabte.tests._helpers import generate_nasdaq_dataset
+from yabte.tests._unittest_numpy_extensions import NumpyTestCase
 from yabte.utilities.lagrangian import Lagrangian
 from yabte.utilities.portopt.hierarchical_risk_parity import hrp
 from yabte.utilities.portopt.inverse_volatility import inverse_volatility

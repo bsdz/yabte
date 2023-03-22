@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from tests._unittest_numpy_extensions import NumpyTestCase
+from yabte.tests._unittest_numpy_extensions import NumpyTestCase
 from yabte.utilities.simulation.geometric_brownian_motion import gbm_simulate_paths
 from yabte.utilities.simulation.heston import heston_simulate_paths
 from yabte.utilities.simulation.weiner import weiner_simulate_paths

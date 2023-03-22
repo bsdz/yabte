@@ -66,8 +66,27 @@ class OrderBase:
     priority: int = 0
     """Each day orders are sorted by this field and executed in order."""
 
+    post_complete: Optional[Callable[[List[Trade]], List[OrderBase]]] = None
+    """Callable that if set, is called after and with trades that have been
+    successfully booked.
+
+    It can return a list of new orders to be executed the following
+    timestep.
+    """
+
     def __post_init__(self):
         pass
+
+    def _book_trades(self, trades):
+        # test then book trades, do any post complete tasks
+        if self.book.test_trades(trades):
+            self.book.add_transactions(trades)
+            self.status = OrderStatus.COMPLETE
+            if self.post_complete is not None:
+                self.suborders.extend(self.post_complete(trades))
+
+        else:
+            self.status = OrderStatus.MANDATE_FAILED
 
     def apply(
         self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
@@ -101,14 +120,6 @@ class Order(OrderBase):
     `OrderStatus.CANCELLED` to indicate the trade should be cancelled or
     `OrderStatus.OPEN` to indicate the trade should not be executed in
     the current timestep and processed in the following timestep.
-    """
-
-    post_complete: Optional[Callable[[List[Trade]], List[OrderBase]]] = None
-    """Callable that if set, is called after and with trades that have been
-    successfully booked.
-
-    It can return a list of new orders to be executed the following
-    timestep.
     """
 
     def __post_init__(self):
@@ -153,17 +164,11 @@ class Order(OrderBase):
                 ts=ts,
                 quantity=trade_quantity,
                 price=trade_price,
+                order_label=self.label,
             )
         ]
 
-        if self.book.test_trades(trades):
-            self.book.add_transactions(trades)
-            self.status = OrderStatus.COMPLETE
-            if self.post_complete is not None:
-                self.suborders.extend(self.post_complete(trades))
-
-        else:
-            self.status = OrderStatus.MANDATE_FAILED
+        self._book_trades(trades)
 
 
 class PositionalOrderCheckType(Enum):
@@ -211,6 +216,7 @@ class PositionalOrder(Order):
                         ts=ts,
                         quantity=-current_position,
                         price=trade_price,
+                        order_label=self.label,
                     )
                 )
             if trade_quantity != 0:
@@ -220,14 +226,11 @@ class PositionalOrder(Order):
                         ts=ts,
                         quantity=trade_quantity,
                         price=trade_price,
+                        order_label=self.label,
                     )
                 )
 
-        if self.book.test_trades(trades):
-            self.book.add_transactions(trades)
-            self.status = OrderStatus.COMPLETE
-        else:
-            self.status = OrderStatus.MANDATE_FAILED
+        self._book_trades(trades)
 
 
 @dataclass
@@ -305,15 +308,12 @@ class BasketOrder(OrderBase):
                 ts=ts,
                 quantity=tq,
                 price=tp,
+                order_label=self.label,
             )
             for an, (tq, tp) in zip(self.asset_names, trade_quantity_prices)
         ]
 
-        if self.book.test_trades(trades):
-            self.book.add_transactions(trades)
-            self.status = OrderStatus.COMPLETE
-        else:
-            self.status = OrderStatus.MANDATE_FAILED
+        self._book_trades(trades)
 
 
 @dataclass(kw_only=True)
@@ -356,6 +356,7 @@ class PositionalBasketOrder(BasketOrder):
                             ts=ts,
                             quantity=-current_position,
                             price=trade_price,
+                            order_label=self.label,
                         )
                     )
                 if trade_quantity != 0:
@@ -365,11 +366,8 @@ class PositionalBasketOrder(BasketOrder):
                             ts=ts,
                             quantity=trade_quantity,
                             price=trade_price,
+                            order_label=self.label,
                         )
                     )
 
-        if self.book.test_trades(trades):
-            self.book.add_transactions(trades)
-            self.status = OrderStatus.COMPLETE
-        else:
-            self.status = OrderStatus.MANDATE_FAILED
+        self._book_trades(trades)
