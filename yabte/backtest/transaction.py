@@ -75,5 +75,5 @@ class Trade(Transaction):
         object.__setattr__(
             self,
             "desc",
-            f"{'sell' if self.quantity < 0 else 'buy'} {self.asset_name}{'; ' + self.order_label if self.order_label else ''}",
+            f"{'sell' if self.quantity < 0 else 'buy'} {self.asset_name}",
         )
