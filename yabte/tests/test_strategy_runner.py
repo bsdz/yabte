@@ -334,23 +334,22 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr.run()
 
     def test_limit_order(self):
+        class LimitOrder(Order):
+            def pre_execute_check(self, tp):
+                # if goes above 110 then cancel
+                if tp > 110:
+                    return OrderStatus.CANCELLED
+                # if drops below 90 then complete order
+                elif tp < 90:
+                    return None
+                # otherwise leave open for another day
+                return OrderStatus.OPEN
+
         class TestLimitOrderStrat(Strategy):
             def on_close(self):
-                def my_limit_func(tp):
-                    # if goes above 110 then cancel
-                    if tp > 110:
-                        return OrderStatus.CANCELLED
-                    # if drops below 90 then complete order
-                    elif tp < 90:
-                        return None
-                    # otherwise leave open for another day
-                    return OrderStatus.OPEN
-
                 ix = self.data.index.get_loc(self.ts)
                 if ix == 0:
-                    self.orders.append(
-                        Order(asset_name="ACME", size=100, pre_exec_cond=my_limit_func)
-                    )
+                    self.orders.append(LimitOrder(asset_name="ACME", size=100))
 
         for ix, (data_arr, op_status, ou_status) in enumerate(
             [
@@ -405,33 +404,30 @@ class StrategyRunnerTestCase(unittest.TestCase):
                 )
 
     def test_stop_loss_order(self):
+        class StopLossOrder(Order):
+            def pre_execute_check(self, tp):
+                # if drops below 90 then complete stop order
+                if tp < 90:
+                    return None
+                # otherwise leave open for another day
+                return OrderStatus.OPEN
+
+        class OrderWithStopLosses(Order):
+            def post_complete(self, trades):
+                return [
+                    StopLossOrder(
+                        asset_name=t.asset_name,
+                        size=-t.quantity,
+                        label="my_stop",
+                    )
+                    for t in trades
+                ]
+
         class TestStopLossOrderStrat(Strategy):
             def on_close(self):
-                def my_stop_func(tp):
-                    # if drops below 90 then complete stop order
-                    if tp < 90:
-                        return None
-                    # otherwise leave open for another day
-                    return OrderStatus.OPEN
-
-                def my_post_comp_func(trades):
-                    return [
-                        Order(
-                            asset_name=t.asset_name,
-                            size=t.quantity,
-                            pre_exec_cond=my_stop_func,
-                            label="my_stop",
-                        )
-                        for t in trades
-                    ]
-
                 ix = self.data.index.get_loc(self.ts)
                 if ix == 0:
-                    self.orders.append(
-                        Order(
-                            asset_name="ACME", size=100, post_complete=my_post_comp_func
-                        )
-                    )
+                    self.orders.append(OrderWithStopLosses(asset_name="ACME", size=100))
 
         for ix, (data_arr, op_status, ou_status) in enumerate(
             [

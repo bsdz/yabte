@@ -19,7 +19,7 @@ __all__ = ["Book"]
 
 @dataclass(kw_only=True)
 class BookMandate:
-    def check(self, current_pos, quantity):
+    def check(self, current_pos, quantity) -> bool:
         raise NotImplementedError()
 
 

@@ -66,14 +66,6 @@ class OrderBase:
     priority: int = 0
     """Each day orders are sorted by this field and executed in order."""
 
-    post_complete: Optional[Callable[[List[Trade]], List[OrderBase]]] = None
-    """Callable that if set, is called after and with trades that have been
-    successfully booked.
-
-    It can return a list of new orders to be executed the following
-    timestep.
-    """
-
     def __post_init__(self):
         pass
 
@@ -82,11 +74,14 @@ class OrderBase:
         if self.book.test_trades(trades):
             self.book.add_transactions(trades)
             self.status = OrderStatus.COMPLETE
-            if self.post_complete is not None:
-                self.suborders.extend(self.post_complete(trades))
+            self.suborders.extend(self.post_complete(trades))
 
         else:
             self.status = OrderStatus.MANDATE_FAILED
+
+    def post_complete(self, trades: List[Trade]) -> List[OrderBase]:
+        """Called after and with trades that have been successfully booked. It can return a list of new orders to be executed the following timestep."""
+        return []
 
     def apply(
         self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
@@ -112,16 +107,6 @@ class Order(OrderBase):
     Can be a quantity, notional or book percent.
     """
 
-    pre_exec_cond: Optional[Callable[[Decimal], Optional[OrderStatus]]] = None
-    """Callable that if set, is called with the calculated trade price before
-    the trade is executed.
-
-    If it returns `None`, the trade is executed as normal. It can return
-    `OrderStatus.CANCELLED` to indicate the trade should be cancelled or
-    `OrderStatus.OPEN` to indicate the trade should not be executed in
-    the current timestep and processed in the following timestep.
-    """
-
     def __post_init__(self):
         super().__post_init__()
         self.size = ensure_decimal(self.size)
@@ -144,6 +129,17 @@ class Order(OrderBase):
 
         return asset.round_quantity(quantity), trade_price
 
+    def pre_execute_check(self, trade_price: Decimal) -> Optional[OrderStatus]:
+        """Called with the calculated trade price before
+        the trade is executed.
+
+        If it returns `None`, the trade is executed as normal. It can return
+        `OrderStatus.CANCELLED` to indicate the trade should be cancelled or
+        `OrderStatus.OPEN` to indicate the trade should not be executed in
+        the current timestep and processed in the following timestep.
+        """
+        return None
+
     def apply(
         self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
     ):
@@ -152,11 +148,9 @@ class Order(OrderBase):
 
         trade_quantity, trade_price = self._calc_quantity_price(day_data, asset_map)
 
-        if self.pre_exec_cond is not None:
-            new_status = self.pre_exec_cond(trade_price)
-            if new_status is not None:
-                self.status = new_status
-                return
+        if (new_status := self.pre_execute_check(trade_price)) is not None:
+            self.status = new_status
+            return
 
         trades = [
             Trade(
@@ -195,6 +189,10 @@ class PositionalOrder(Order):
             raise RuntimeError("Cannot apply order without book instance")
 
         trade_quantity, trade_price = self._calc_quantity_price(day_data, asset_map)
+
+        if (new_status := self.pre_execute_check(trade_price)) is not None:
+            self.status = new_status
+            return
 
         current_position = self.book.positions[self.asset_name]
 
