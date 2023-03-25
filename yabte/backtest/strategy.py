@@ -1,5 +1,5 @@
 import logging
-from collections import deque
+from collections import Counter, deque
 from copy import deepcopy
 from dataclasses import dataclass, field
 from itertools import chain, product
@@ -18,7 +18,34 @@ __all__ = ["Strategy", "StrategyRunner"]
 
 
 class Orders(deque):
-    pass
+    def sort_by_priority(self):
+        """Sorts orders by order priority."""
+        ou_sorted = sorted(self, key=lambda o: o.priority, reverse=True)
+        self.clear()
+        self.extend(ou_sorted)
+
+    def remove_duplicate_keys(self) -> List[Order]:
+        """Remove older orders with same key.
+
+        Returns a list of orders than were removed with status set to
+        REPLACED.
+        """
+        removed = []
+        cntr = Counter(o.key for o in self if o.key is not None)
+        if any(v > 1 for v in cntr.values()):
+            kept = []
+            while self:
+                o = self.popleft()
+                if o.key in cntr and cntr[o.key] > 1:
+                    o.status = OrderStatus.REPLACED
+                    removed.append(o)
+                    cntr[o.key] -= 1
+                else:
+                    kept.append(o)
+            self.clear()
+            self.extend(kept)
+
+        return removed
 
 
 @dataclass(kw_only=True)
@@ -280,11 +307,7 @@ class StrategyRunner:
             day_data = self.data.loc[ts, :]
 
             # sort orders by priority
-            ou_sorted = sorted(
-                self._orders_unprocessed, key=lambda o: o.priority, reverse=True
-            )
-            self._orders_unprocessed.clear()
-            self._orders_unprocessed.extend(ou_sorted)
+            self._orders_unprocessed.sort_by_priority()
 
             # process orders
             orders_next_ts = []
@@ -305,7 +328,13 @@ class StrategyRunner:
                     orders_next_ts.append(order)
                 else:
                     self.orders_processed.append(order)
+
+            # extend with orders for next ts
             self._orders_unprocessed.extend(orders_next_ts)
+
+            # remove older duplicate orders
+            replaced = self._orders_unprocessed.remove_duplicate_keys()
+            self.orders_processed.extend(replaced)
 
             # close
             for strat in self._strategies:

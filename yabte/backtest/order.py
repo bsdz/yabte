@@ -33,6 +33,9 @@ class OrderStatus(Enum):
     COMPLETE = 4
     """Order completed succesfully."""
 
+    REPLACED = 5
+    """Order was replaced."""
+
 
 class OrderSizeType(Enum):
     """Various size types."""
@@ -66,6 +69,13 @@ class OrderBase:
     priority: int = 0
     """Each day orders are sorted by this field and executed in order."""
 
+    key: Optional[str] = None
+    """Unique key for this order.
+
+    If a key is set then only the newest order with this key is kept.
+    Older orders with the same key will be removed.
+    """
+
     def __post_init__(self):
         pass
 
@@ -74,14 +84,18 @@ class OrderBase:
         if self.book.test_trades(trades):
             self.book.add_transactions(trades)
             self.status = OrderStatus.COMPLETE
-            self.suborders.extend(self.post_complete(trades))
+            self.post_complete(trades)
 
         else:
             self.status = OrderStatus.MANDATE_FAILED
 
-    def post_complete(self, trades: List[Trade]) -> List[OrderBase]:
-        """Called after and with trades that have been successfully booked. It can return a list of new orders to be executed the following timestep."""
-        return []
+    def post_complete(self, trades: List[Trade]):
+        """Called after and with trades that have been successfully booked.
+
+        It can append new orders to suborders for execution in the
+        following timestep.
+        """
+        pass
 
     def apply(
         self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
@@ -129,14 +143,17 @@ class Order(OrderBase):
 
         return asset.round_quantity(quantity), trade_price
 
-    def pre_execute_check(self, trade_price: Decimal) -> Optional[OrderStatus]:
-        """Called with the calculated trade price before
+    def pre_execute_check(
+        self, ts: pd.Timestamp, trade_price: Decimal
+    ) -> Optional[OrderStatus]:
+        """Called with the current timestep and calculated trade price before
         the trade is executed.
 
-        If it returns `None`, the trade is executed as normal. It can return
-        `OrderStatus.CANCELLED` to indicate the trade should be cancelled or
-        `OrderStatus.OPEN` to indicate the trade should not be executed in
-        the current timestep and processed in the following timestep.
+        If it returns `None`, the trade is executed as normal. It can
+        return `OrderStatus.CANCELLED` to indicate the trade should be
+        cancelled or `OrderStatus.OPEN` to indicate the trade should not
+        be executed in the current timestep and processed in the
+        following timestep.
         """
         return None
 
@@ -148,7 +165,7 @@ class Order(OrderBase):
 
         trade_quantity, trade_price = self._calc_quantity_price(day_data, asset_map)
 
-        if (new_status := self.pre_execute_check(trade_price)) is not None:
+        if (new_status := self.pre_execute_check(ts, trade_price)) is not None:
             self.status = new_status
             return
 
@@ -190,7 +207,7 @@ class PositionalOrder(Order):
 
         trade_quantity, trade_price = self._calc_quantity_price(day_data, asset_map)
 
-        if (new_status := self.pre_execute_check(trade_price)) is not None:
+        if (new_status := self.pre_execute_check(ts, trade_price)) is not None:
             self.status = new_status
             return
 

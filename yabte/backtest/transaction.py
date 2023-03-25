@@ -56,7 +56,7 @@ class Trade(Transaction):
     """Traded asset."""
 
     order_label: str | None
-    """Associated Order label"""
+    """Associated Order label."""
 
     def __post_init__(self):
         super().__post_init__()

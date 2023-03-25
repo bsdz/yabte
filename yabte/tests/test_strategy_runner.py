@@ -5,7 +5,6 @@ from decimal import Decimal
 import numpy as np
 import pandas as pd
 
-from yabte.tests._helpers import generate_nasdaq_dataset
 from yabte.backtest import (
     Asset,
     BasketOrder,
@@ -18,6 +17,7 @@ from yabte.backtest import (
     Strategy,
     StrategyRunner,
 )
+from yabte.tests._helpers import generate_nasdaq_dataset
 from yabte.utilities.strategy_helpers import crossover
 
 logger = logging.getLogger(__name__)
@@ -335,7 +335,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
 
     def test_limit_order(self):
         class LimitOrder(Order):
-            def pre_execute_check(self, tp):
+            def pre_execute_check(self, ts, tp):
                 # if goes above 110 then cancel
                 if tp > 110:
                     return OrderStatus.CANCELLED
@@ -405,7 +405,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
 
     def test_stop_loss_order(self):
         class StopLossOrder(Order):
-            def pre_execute_check(self, tp):
+            def pre_execute_check(self, ts, tp):
                 # if drops below 90 then complete stop order
                 if tp < 90:
                     return None
@@ -414,14 +414,16 @@ class StrategyRunnerTestCase(unittest.TestCase):
 
         class OrderWithStopLosses(Order):
             def post_complete(self, trades):
-                return [
-                    StopLossOrder(
-                        asset_name=t.asset_name,
-                        size=-t.quantity,
-                        label="my_stop",
-                    )
-                    for t in trades
-                ]
+                self.suborders.extend(
+                    [
+                        StopLossOrder(
+                            asset_name=t.asset_name,
+                            size=-t.quantity,
+                            label="my_stop",
+                        )
+                        for t in trades
+                    ]
+                )
 
         class TestStopLossOrderStrat(Strategy):
             def on_close(self):
@@ -473,6 +475,96 @@ class StrategyRunnerTestCase(unittest.TestCase):
                 self.assertListEqual(
                     ou_status, [(o.status, o.label) for o in sr.orders_unprocessed]
                 )
+
+    def test_priority(self):
+        class TestPriorityStrat(Strategy):
+            def on_close(self):
+                ix = self.data.index.get_loc(self.ts)
+                if ix == 0:
+                    self.orders.append(Order(asset_name="ACME", size=100, priority=2))
+                    self.orders.append(Order(asset_name="ACME", size=200, priority=3))
+                    self.orders.append(Order(asset_name="ACME", size=300, priority=1))
+
+        data_arr = [
+            [105],
+            [115],
+            [110],
+        ]
+
+        data = pd.DataFrame(
+            data_arr,
+            columns=pd.MultiIndex.from_product([["ACME"], ["Close"]]),
+            index=pd.date_range(start="20180102", periods=len(data_arr), freq="B"),
+        )
+
+        sr = StrategyRunner(
+            data=data,
+            assets=[Asset(name="ACME", denom="USD")],
+            strat_classes=[TestPriorityStrat],
+        )
+        sr.run()
+
+        self.assertListEqual(
+            sr.transaction_history.quantity.to_list(),
+            [Decimal("200.00"), Decimal("100.00"), Decimal("300.00")],
+        )
+
+    def test_order_key(self):
+        class LimitOrder(Order):
+            # this limit won't be met in test
+            def pre_execute_check(self, ts, tp):
+                # if goes above 200 then complete order
+                if tp > 200:
+                    return None
+                # otherwise leave open for another day
+                return OrderStatus.OPEN
+
+        class TestOrderkeyStrat(Strategy):
+            def on_close(self):
+                ix = self.data.index.get_loc(self.ts)
+                if ix == 0:
+                    self.orders.append(
+                        LimitOrder(asset_name="ACME", size=100, key="my_key")
+                    )
+                    self.orders.append(LimitOrder(asset_name="ACME", size=200))
+                elif ix == 1:
+                    self.orders.append(
+                        LimitOrder(asset_name="ACME", size=300, key="my_key")
+                    )
+
+        data_arr = [
+            [105],
+            [115],
+            [110],
+        ]
+
+        data = pd.DataFrame(
+            data_arr,
+            columns=pd.MultiIndex.from_product([["ACME"], ["Close"]]),
+            index=pd.date_range(start="20180102", periods=len(data_arr), freq="B"),
+        )
+
+        sr = StrategyRunner(
+            data=data,
+            assets=[Asset(name="ACME", denom="USD")],
+            strat_classes=[TestOrderkeyStrat],
+        )
+        sr.run()
+
+        self.assertListEqual(
+            [
+                (OrderStatus.REPLACED, "my_key", Decimal("100")),
+            ],
+            [(o.status, o.key, o.size) for o in sr.orders_processed],
+        )
+
+        self.assertListEqual(
+            [
+                (OrderStatus.OPEN, None, Decimal("200")),
+                (OrderStatus.OPEN, "my_key", Decimal("300")),
+            ],
+            [(o.status, o.key, o.size) for o in sr.orders_unprocessed],
+        )
 
 
 if __name__ == "__main__":
