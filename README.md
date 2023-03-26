@@ -23,15 +23,12 @@ pip install yatbe
 Below is an example usage (the performance of the example strategy won't be good).
 
 ```python
-import inspect
-from pathlib import Path
-
 import pandas as pd
 
-from yabte.backtest import Strategy, StrategyRunner, Order, Book, Asset
+from yabte.backtest import Strategy, StrategyRunner, Order, Book
+from yabte.utilities.plot.matplotlib.strategy_runner import plot_strategy_runner
 from yabte.utilities.strategy_helpers import crossover
-
-data_dir = Path(inspect.getfile(Strategy)).parents[2] / "tests/data/nasdaq"
+from yabte.tests._helpers import generate_nasdaq_dataset
 
 
 class SMAXO(Strategy):
@@ -73,20 +70,14 @@ class SMAXO(Strategy):
 
 
 # load some data
-assets = [Asset(name="GOOG", denom="USD"), Asset(name="MSFT", denom="USD")]
-
-df_goog = pd.read_csv(data_dir / "GOOG.csv", index_col=0, parse_dates=[0])
-df_goog.columns = pd.MultiIndex.from_tuples([("GOOG", f) for f in df_goog.columns])
-
-df_msft = pd.read_csv(data_dir / "MSFT.csv", index_col=0, parse_dates=[0])
-df_msft.columns = pd.MultiIndex.from_tuples([("MSFT", f) for f in df_msft.columns])
+assets, df_combined = generate_nasdaq_dataset()
 
 # create a book with 100000 cash
 book = Book(name="Main", cash="100000")
 
 # run our strategy
 sr = StrategyRunner(
-    data=pd.concat([df_goog, df_msft], axis=1),
+    data=df_combined,
     assets=assets,
     strat_classes=[SMAXO],
     books=[book],
@@ -98,18 +89,7 @@ th = sr.transaction_history
 bch = sr.book_history.loc[:, (slice(None), "cash")]
 
 # plot the trades against book value
-bvh = sr.book_history.loc[:, (slice(None), "total")].droplevel(axis=1, level=1)
-ax = bvh.plot(title="Book Value History")
-
-for symbol, scol, lcol in [("GOOG", "red", "green"), ("MSFT", "blue", "yellow")]:
-    long_ix = th.query(f"asset_name == '{symbol}' and quantity > 0").ts
-    short_ix = th.query(f"asset_name == '{symbol}' and quantity < 0").ts
-    bvh.loc[long_ix].rename(columns={"Main": f"{symbol} Short"}).plot(
-        color=scol, marker="v", markersize=5, linestyle="None", ax=ax
-    )
-    bvh.loc[short_ix].rename(columns={"Main": f"{symbol} Long"}).plot(
-        color=lcol, marker="^", markersize=5, linestyle="None", ax=ax
-    )
+plot_strategy_runner(sr);
 
 ```
 
