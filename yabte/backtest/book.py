@@ -3,7 +3,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from decimal import Decimal
 from itertools import groupby
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Sequence, TypeAlias
 
 import pandas as pd
 
@@ -23,8 +23,8 @@ class BookMandate:
         raise NotImplementedError()
 
 
-class BookName(str):
-    """Book name string."""
+BookName: TypeAlias = str
+"""Book name string."""
 
 
 @dataclass(kw_only=True)

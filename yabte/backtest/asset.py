@@ -1,14 +1,14 @@
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Sequence
+from typing import Sequence, TypeAlias
 
 import pandas as pd
 
 __all__ = ["Asset"]
 
 
-class AssetName(str):
-    """Asset name string."""
+AssetName: TypeAlias = str
+"""Asset name string."""
 
 
 @dataclass(kw_only=True)
