@@ -1,6 +1,5 @@
 from mypyc.build import mypycify
 
-
 modules = [
     "yabte/backtest/__init__.py",
     "yabte/backtest/_helpers.py",
