@@ -7,6 +7,10 @@ license = "MIT"
 readme = "README.md"
 repository = "https://github.com/bsdz/yabte"
 
+[tool.poetry.build]
+script = "build.py"
+generate-setup-file = true
+
 [tool.poetry.dependencies]
 python = "^3.10,<3.12"
 pandas = "^1.5.2"
@@ -43,5 +47,5 @@ nbconvert = "^7.2.9"
 profile = "black"
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
+requires = ["poetry-core>=1.0.0", "setuptools", "mypy==1.3.0", "pandas-stubs==2.0.0.230412"]
 build-backend = "poetry.core.masonry.api"
