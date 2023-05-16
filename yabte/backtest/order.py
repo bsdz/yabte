@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
+from mypy_extensions import mypyc_attr
 
 from ._helpers import ensure_decimal, ensure_enum
 from .asset import Asset, AssetName
@@ -50,6 +51,7 @@ class OrderSizeType(Enum):
     """Size is a percentage of book value."""
 
 
+@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class OrderBase:
     """Base class for all orders."""
@@ -105,6 +107,7 @@ class OrderBase:
         raise NotImplementedError("The apply methods needs to be implemented.")
 
 
+@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class Order(OrderBase):
     """Simple market order."""

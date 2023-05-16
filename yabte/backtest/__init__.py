@@ -1,6 +1,8 @@
-from .asset import Asset, AssetName
-from .book import Book, BookMandate, BookName
-from .order import (
+# TODO: use absolute imports until mypyc fixes relative imports in __init__.py
+# (https://github.com/mypyc/mypyc/issues/996)
+from yabte.backtest.asset import Asset, AssetName
+from yabte.backtest.book import Book, BookMandate, BookName
+from yabte.backtest.order import (
     BasketOrder,
     Order,
     OrderSizeType,
@@ -9,8 +11,8 @@ from .order import (
     PositionalOrder,
     PositionalOrderCheckType,
 )
-from .strategy import Strategy, StrategyRunner
-from .transaction import CashTransaction, Trade
+from yabte.backtest.strategy import Strategy, StrategyRunner
+from yabte.backtest.transaction import CashTransaction, Trade
 
 __all__ = [
     "Asset",

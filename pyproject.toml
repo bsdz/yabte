@@ -11,12 +11,13 @@ repository = "https://github.com/bsdz/yabte"
 python = "^3.10,<3.12"
 pandas = "^1.5.2"
 scipy = "^1.10.0"
+pandas-stubs = "^2.0.0.230412"
+mypy = "^1.3.0"
 
 [tool.poetry.group.dev]
 optional = true
 
 [tool.poetry.group.dev.dependencies]
-mypy = "^0.991"
 isort = "^5.11.4"
 black = {extras = ["jupyter"], version = "^23.1.0"}
 docformatter = "^1.5.1"
