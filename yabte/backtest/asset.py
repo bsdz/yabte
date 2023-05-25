@@ -3,6 +3,7 @@ from decimal import Decimal
 from typing import Sequence, TypeAlias
 
 import pandas as pd
+from mypy_extensions import mypyc_attr
 
 __all__ = ["Asset"]
 
@@ -11,6 +12,7 @@ AssetName: TypeAlias = str
 """Asset name string."""
 
 
+@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class AssetBase:
     """Anything that has a price."""
@@ -60,6 +62,7 @@ class AssetBase:
         raise NotImplementedError("The apply methods needs to be implemented.")
 
 
+@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class Asset(AssetBase):
     """Assets whose price history is represented by High, Low, Open, Close and

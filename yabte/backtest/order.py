@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 from mypy_extensions import mypyc_attr
@@ -190,6 +190,7 @@ class PositionalOrderCheckType(Enum):
     ZERO_POS = 2
 
 
+@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class PositionalOrder(Order):
     """Ensures current position is `size` and will close out existing positions
@@ -251,6 +252,7 @@ class PositionalOrder(Order):
         self._book_trades(trades)
 
 
+@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass
 class BasketOrder(OrderBase):
     """Combine multiple assets into a single order."""
@@ -334,6 +336,7 @@ class BasketOrder(OrderBase):
         self._book_trades(trades)
 
 
+@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class PositionalBasketOrder(BasketOrder):
     """Similar to a :py:class:`BasketOrder` but will close out existing
