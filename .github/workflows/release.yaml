@@ -29,6 +29,6 @@ jobs:
           PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         run: |
           poetry build
-          poetry build ----ignore-build-script
+          poetry build --ignore-build-script
           poetry config pypi-token.pypi $PYPI_TOKEN
           poetry publish
