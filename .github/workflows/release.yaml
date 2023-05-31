@@ -9,14 +9,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10"]
-        poetry-version: ["1.3.1"]
-        os: [ubuntu-latest]
+        include:
+          - os: ubuntu-latest
+            python-version: "3.10"
+            poetry-version: "1.3.1"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
       - name: Install poetry
-        run: pipx install poetry==${{ matrix.poetry-version }}
+        run: |
+          pipx install poetry==${{ matrix.poetry-version }}
+          poetry self add poetry-plugin-ignore-build-script
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
@@ -25,5 +28,7 @@ jobs:
         env:
           PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         run: |
+          poetry build
+          poetry build ----ignore-build-script
           poetry config pypi-token.pypi $PYPI_TOKEN
-          poetry publish --build
+          poetry publish
