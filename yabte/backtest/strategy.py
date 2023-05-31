@@ -3,51 +3,74 @@ from collections import Counter, deque
 from copy import deepcopy
 from dataclasses import dataclass, field
 from itertools import chain, product
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, Iterable, List, Optional, Type
 
-import numpy as np
 import pandas as pd
+from mypy_extensions import mypyc_attr
+
+# TODO: use explicit imports until mypyc fixes attribute lookups in dataclass
+# (https://github.com/mypyc/mypyc/issues/1000)
+from pandas import DataFrame, Series, Timestamp  # type: ignore
 
 from .asset import Asset, AssetName
 from .book import Book, BookMandate, BookName
-from .order import Order, OrderStatus
+from .order import Order, OrderBase, OrderStatus
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["Strategy", "StrategyRunner"]
 
 
-class Orders(deque):
+class Orders:
+    def __init__(self):
+        self.deque = deque()
+
+    def __len__(self):
+        return len(self.deque)
+
+    def __iter__(self):
+        return iter(self.deque)
+
+    def popleft(self):
+        return self.deque.popleft()
+
+    def append(self, order: OrderBase):
+        return self.deque.append(order)
+
+    def extend(self, orders: Iterable[OrderBase]):
+        return self.deque.extend(orders)
+
     def sort_by_priority(self):
         """Sorts orders by order priority."""
-        ou_sorted = sorted(self, key=lambda o: o.priority, reverse=True)
-        self.clear()
-        self.extend(ou_sorted)
+        ou_sorted = sorted(self.deque, key=lambda o: o.priority, reverse=True)
+        self.deque.clear()
+        self.deque.extend(ou_sorted)
 
-    def remove_duplicate_keys(self) -> List[Order]:
+    def remove_duplicate_keys(self) -> List[OrderBase]:
         """Remove older orders with same key.
 
         Returns a list of orders than were removed with status set to
         REPLACED.
         """
         removed = []
-        cntr = Counter(o.key for o in self if o.key is not None)
+        cntr = Counter(o.key for o in self.deque if o.key is not None)
         if any(v > 1 for v in cntr.values()):
             kept = []
-            while self:
-                o = self.popleft()
+            while self.deque:
+                o = self.deque.popleft()
                 if o.key in cntr and cntr[o.key] > 1:
                     o.status = OrderStatus.REPLACED
                     removed.append(o)
                     cntr[o.key] -= 1
                 else:
                     kept.append(o)
-            self.clear()
-            self.extend(kept)
+            self.deque.clear()
+            self.deque.extend(kept)
 
         return removed
 
 
+@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class Strategy:
     """Trading strategy base class.
@@ -68,16 +91,16 @@ class Strategy:
     assets: Dict[AssetName, Asset]
     """Dictionary of assets."""
 
-    _ts = None
-    _data_lock = True
-    _mask_open = False
+    _ts: pd.Timestamp | None = None
+    _data_lock: bool = True
+    _mask_open: bool = False
 
     @property
-    def ts(self):
+    def ts(self) -> pd.Timestamp | None:
         """Stores the current timestamp."""
         return self._ts
 
-    def _set_ts(self, ts):
+    def _set_ts(self, ts: pd.Timestamp):
         """Internal method to update timestep to current `ts`"""
         self._ts = ts
 
@@ -103,7 +126,7 @@ class Strategy:
         if not self.ts:
             return self._data
         else:
-            df_t = self._data.loc[: self.ts, :]
+            df_t = self._data.loc[: self.ts, :]  # type: ignore[misc]
             if not self._mask_open:
                 data = df_t
             else:
