@@ -26,7 +26,7 @@ def build(setup_kwargs):
 
 
 def build_inplace():
-    """Build modules inplace for running tests"""
+    """Build modules inplace for running tests."""
     import os
     import subprocess
 
