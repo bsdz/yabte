@@ -39,6 +39,7 @@ optional = true
 
 [tool.poetry.group.notebooks.dependencies]
 matplotlib = "^3.6.2"
+plotly = "^5.10.0"
 ipykernel = "^6.20.2"
 pyfeng = "^0.2.5"
 nbconvert = "^7.2.9"
