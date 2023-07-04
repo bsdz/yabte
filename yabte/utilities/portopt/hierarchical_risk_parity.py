@@ -57,8 +57,8 @@ def _getRecBipart(cov, sortIx):
 
 
 def hrp(corr: pd.DataFrame, sigma: np.ndarray) -> np.ndarray:
-    """Calculate weights using hierarchical risk parity and scipy's
-    linkage/to_tree functions."""
+    """Calculate weights using hierarchical risk parity and scipy's linkage/to_tree
+    functions."""
     cov = np.diag(sigma) @ corr @ np.diag(sigma)
     cov.index, cov.columns = corr.index, corr.columns
     rho = corr.values

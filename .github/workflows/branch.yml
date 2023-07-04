@@ -38,7 +38,7 @@ jobs:
       - name: Run isort
         run: poetry run isort . --check-only --profile black
       - name: Run docformatter
-        run: poetry run docformatter . --recursive --check --diff
+        run: poetry run docformatter . --recursive --check --diff --black --exclude _unittest_numpy_extensions.py
 #       - name: Run flake8
 #         run: poetry run flake8 .
 #       - name: Run bandit

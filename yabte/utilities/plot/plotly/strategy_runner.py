@@ -11,10 +11,9 @@ from ....backtest import StrategyRunner
 def plot_strategy_runner(sr: StrategyRunner, settings: dict[str, Any] | None = None):
     """Display the results of a strategy run using plotly.
 
-    Plots a grid of charts with each column representing a book and rows
-    representing each asset's price series along with long/short
-    positioning and volumne series. A bottom row shows the value of each
-    book as a price series.
+    Plots a grid of charts with each column representing a book and rows representing
+    each asset's price series along with long/short positioning and volumne series. A
+    bottom row shows the value of each book as a price series.
     """
     default_settings: dict[str, Any] = {}
 
