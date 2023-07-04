@@ -65,8 +65,8 @@ class AssetBase:
 @mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class Asset(AssetBase):
-    """Assets whose price history is represented by High, Low, Open, Close and
-    Volume fields."""
+    """Assets whose price history is represented by High, Low, Open, Close and Volume
+    fields."""
 
     @property
     def fields_available_at_open(self) -> Sequence[str]:

@@ -111,5 +111,5 @@ Before commit run following format commands in project folder:
 ```bash
 poetry run black .
 poetry run isort . --profile black
-poetry run docformatter . --recursive --in-place
+poetry run docformatter . --recursive --in-place --black --exclude _unittest_numpy_extensions.py
 ```

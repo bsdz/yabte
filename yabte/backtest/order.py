@@ -74,8 +74,8 @@ class OrderBase:
     key: Optional[str] = None
     """Unique key for this order.
 
-    If a key is set then only the newest order with this key is kept.
-    Older orders with the same key will be removed.
+    If a key is set then only the newest order with this key is kept. Older orders with
+    the same key will be removed.
     """
 
     def __post_init__(self):
@@ -94,8 +94,7 @@ class OrderBase:
     def post_complete(self, trades: List[Trade]):
         """Called after and with trades that have been successfully booked.
 
-        It can append new orders to suborders for execution in the
-        following timestep.
+        It can append new orders to suborders for execution in the following timestep.
         """
         pass
 
@@ -149,8 +148,8 @@ class Order(OrderBase):
     def pre_execute_check(
         self, ts: pd.Timestamp, trade_price: Decimal
     ) -> Optional[OrderStatus]:
-        """Called with the current timestep and calculated trade price before
-        the trade is executed.
+        """Called with the current timestep and calculated trade price before the trade
+        is executed.
 
         If it returns `None`, the trade is executed as normal. It can
         return `OrderStatus.CANCELLED` to indicate the trade should be

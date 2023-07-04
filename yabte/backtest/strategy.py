@@ -49,8 +49,7 @@ class Orders:
     def remove_duplicate_keys(self) -> List[OrderBase]:
         """Remove older orders with same key.
 
-        Returns a list of orders than were removed with status set to
-        REPLACED.
+        Returns a list of orders than were removed with status set to REPLACED.
         """
         removed = []
         cntr = Counter(o.key for o in self.deque if o.key is not None)
@@ -210,11 +209,11 @@ class StrategyRunner:
     """
 
     data: pd.DataFrame = field()
-    """Dataframe of price data including columns High, Low, Open, Close, Volume
-    for each asset.
+    """Dataframe of price data including columns High, Low, Open, Close, Volume for each
+    asset.
 
-    Both asset name and field make a multiindex column. The index should
-    consist of order pandas timestamps.
+    Both asset name and field make a multiindex column. The index should consist of
+    order pandas timestamps.
     """
 
     assets: List[Asset]
@@ -232,8 +231,7 @@ class StrategyRunner:
     books: List[Book] = field(default_factory=list)
     """Books available to strategies.
 
-    If not supplied will be populated with single book named 'Main'
-    denominated in USD.
+    If not supplied will be populated with single book named 'Main' denominated in USD.
     """
 
     @property

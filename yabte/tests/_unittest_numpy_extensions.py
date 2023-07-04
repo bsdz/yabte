@@ -6,13 +6,13 @@ __all__ = ["NumpyTestCase"]
 
 
 class NumpyTestCase(unittest.TestCase):
-    """Specialized TestCase which includes numpy test assertion functions and
-    maps them from assert_func_name to self.numpyAssertFuncName.
+    """Specialized TestCase which includes numpy test assertion functions and maps them
+    from assert_func_name to self.numpyAssertFuncName.
 
     class NumpyTest(NumpyTestCase):
-    def test_allclose_example(self):
-        a1 = np.array([1.,2.,3.])
-        self.numpyAssertAllclose(a1, np.array([1.,2.,3.1]))
+        def test_allclose_example(self):
+            a1 = np.array([1.,2.,3.])
+            self.numpyAssertAllclose(a1, np.array([1.,2.,3.1]))
     """
 
 

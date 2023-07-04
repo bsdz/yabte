@@ -33,8 +33,8 @@ def minimum_variance(Sigma: np.ndarray, mu: np.ndarray, r: float) -> np.ndarray:
 
 
 def minimum_variance_numeric(Sigma: np.ndarray, mu: np.ndarray, r: float) -> np.ndarray:
-    """Calculate weights using Lagrangian multipliers and numeric solution
-    (using scipy's root function)."""
+    """Calculate weights using Lagrangian multipliers and numeric solution (using
+    scipy's root function)."""
     m = len(mu)
     ones = np.ones(m)
 
@@ -52,8 +52,8 @@ def minimum_variance_numeric(Sigma: np.ndarray, mu: np.ndarray, r: float) -> np.
 def minimum_variance_numeric_slsqp(
     Sigma: np.ndarray, mu: np.ndarray, r: float
 ) -> np.ndarray:
-    """Calculate weights using Lagrangian multipliers and numeric solution
-    (using scipy's minimize function)."""
+    """Calculate weights using Lagrangian multipliers and numeric solution (using
+    scipy's minimize function)."""
     from scipy.optimize import minimize
 
     m = len(mu)

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "yabte"
-version = "0.3.5"
+version = "0.3.6"
 description = "Yet another backtesting engine"
 authors = ["Blair Azzopardi <blairuk@gmail.com>"]
 license = "MIT"
@@ -39,6 +39,7 @@ optional = true
 
 [tool.poetry.group.notebooks.dependencies]
 matplotlib = "^3.6.2"
+plotly = "^5.10.0"
 ipykernel = "^6.20.2"
 pyfeng = "^0.2.5"
 nbconvert = "^7.2.9"
