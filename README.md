@@ -26,7 +26,7 @@ Below is an example usage (the performance of the example strategy won't be good
 import pandas as pd
 
 from yabte.backtest import Strategy, StrategyRunner, Order, Book
-from yabte.utilities.plot.matplotlib.strategy_runner import plot_strategy_runner
+from yabte.utilities.plot.plotly.strategy_runner import plot_strategy_runner
 from yabte.utilities.strategy_helpers import crossover
 from yabte.tests._helpers import generate_nasdaq_dataset
 
