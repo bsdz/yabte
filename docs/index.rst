@@ -123,6 +123,13 @@ via our instance:
    yabte.utilities.portopt
    yabte.utilities.simulation
 
+Thumbnails gallery
+==================
+
+.. nbgallery::
+   notebooks/Portfolio_Optimization
+   notebooks/Delta_Hedging
+
 Indices and tables
 ==================
 
