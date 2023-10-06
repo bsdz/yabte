@@ -16,7 +16,7 @@ build:
       - pip install poetry==1.3.1
       - poetry config virtualenvs.create false
     post_install:
-      - echo "def build(setup_kwargs): pass" > build.py
+      - "echo 'def build(setup_kwargs): pass' > build.py"
       - poetry install --with docs
 
 sphinx:
