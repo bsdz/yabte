@@ -18,6 +18,7 @@ build:
     post_install:
       - "echo 'def build(setup_kwargs): pass' > build.py"
       - poetry install --with docs
+      - find .
 
 sphinx:
   configuration: docs/conf.py
