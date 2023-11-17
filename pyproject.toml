@@ -13,7 +13,7 @@ generate-setup-file = true
 
 [tool.poetry.dependencies]
 python = "^3.10,<3.12"
-pandas = "^1.5.2"
+pandas = ">1.5,<3"
 scipy = "^1.10.0"
 pandas-stubs = "^2.0.0.230412"
 mypy = "^1.3.0"
