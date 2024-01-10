@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
-from enum import Flag, auto
+
+# from enum import Flag, auto
 from typing import TypeAlias
 
 import pandas as pd
@@ -9,10 +10,11 @@ from mypy_extensions import mypyc_attr
 __all__ = ["Asset"]
 
 
-class AssetDataFieldInfo(Flag):
-    AVAILABLE_AT_CLOSE = auto()
-    AVAILABLE_AT_OPEN = auto()
-    REQUIRED = auto()
+# use normal class until mypy supports flags
+class AssetDataFieldInfo:
+    AVAILABLE_AT_CLOSE: int = 1
+    AVAILABLE_AT_OPEN: int = 2
+    REQUIRED: int = 4
 
 
 _FI = AssetDataFieldInfo

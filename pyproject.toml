@@ -51,5 +51,5 @@ nbconvert = "^7.2.9"
 profile = "black"
 
 [build-system]
-requires = ["poetry-core>=1.0.0", "setuptools==69.0.2", "mypy==1.7.1", "pandas-stubs==2.1.4.231227"]
+requires = ["poetry-core>=1.0.0", "setuptools==69.0.2", "mypy==1.8.0", "pandas-stubs==2.1.4.231227"]
 build-backend = "poetry.core.masonry.api"
