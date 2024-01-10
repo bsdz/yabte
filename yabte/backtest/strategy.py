@@ -12,7 +12,7 @@ from mypy_extensions import mypyc_attr
 # (https://github.com/mypyc/mypyc/issues/1000)
 from pandas import DataFrame, Series, Timestamp  # type: ignore
 
-from .asset import Asset, AssetName
+from .asset import Asset, AssetDataFieldInfo, AssetName
 from .book import Book, BookMandate, BookName
 from .order import Order, OrderBase, OrderStatus
 
@@ -109,7 +109,10 @@ class Strategy:
             mix = pd.MultiIndex.from_tuples(
                 chain(
                     *[
-                        product([asset.data_label], asset.fields_available_at_open)
+                        product(
+                            [asset.data_label],
+                            asset._get_fields(AssetDataFieldInfo.AVAILABLE_AT_OPEN),
+                        )
                         for asset_name, asset in self.assets.items()
                     ]
                 )
@@ -174,7 +177,7 @@ def _check_data(df, asset_map):
     if not df.index.is_unique:
         raise ValueError("data index must be unique")
 
-    # colum level 1 = asset, level 2 = field
+    # column level 1 = asset, level 2 = field
     if not isinstance(df.columns, pd.MultiIndex):
         raise ValueError("data columns must be multindex asset/field")
     if len(df.columns.levels) != 2:

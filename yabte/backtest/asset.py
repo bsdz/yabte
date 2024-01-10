@@ -1,11 +1,21 @@
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Sequence, TypeAlias
+from enum import Flag, auto
+from typing import TypeAlias
 
 import pandas as pd
 from mypy_extensions import mypyc_attr
 
 __all__ = ["Asset"]
+
+
+class AssetDataFieldInfo(Flag):
+    AVAILABLE_AT_CLOSE = auto()
+    AVAILABLE_AT_OPEN = auto()
+    REQUIRED = auto()
+
+
+_FI = AssetDataFieldInfo
 
 
 AssetName: TypeAlias = str
@@ -43,23 +53,36 @@ class AssetBase:
         """Round `quantity`."""
         return round(quantity, self.quantity_round_dp)
 
-    @property
-    def fields_available_at_open(self) -> Sequence[str]:
-        """A sequence of field names available at open.
-
-        Any fields not in this sequence will be masked out.
-        """
-        return []
-
-    def intraday_traded_price(self, asset_day_data) -> Decimal:
+    def intraday_traded_price(
+        self, asset_day_data: pd.Series, size: Decimal | None = None
+    ) -> Decimal:
         """Calculate price during market hours with given row of
-        `asset_day_data`."""
-        raise NotImplementedError("The apply methods needs to be implemented.")
+        `asset_day_data` and the order `size`. The `size` can be used to
+        determine a price from say, bid / ask spreads."""
+        raise NotImplementedError(
+            "The intraday_traded_price method needs to be implemented."
+        )
+
+    def end_of_day_price(self, asset_day_data: pd.Series) -> Decimal:
+        """Calculate price at end of day with given row of `asset_day_data`."""
+        raise NotImplementedError(
+            "The end_of_day_price method needs to be implemented."
+        )
 
     def check_and_fix_data(self, data: pd.DataFrame) -> pd.DataFrame:
         """Checks dataframe `data` has correct fields and fixes columns where
         necessary."""
-        raise NotImplementedError("The apply methods needs to be implemented.")
+        raise NotImplementedError(
+            "The check_and_fix_data method needs to be implemented."
+        )
+
+    def data_fields(self) -> list[tuple[str, AssetDataFieldInfo]]:
+        """List of data fields and their availability."""
+        raise NotImplementedError("The data_fields method needs to be implemented.")
+
+    def _get_fields(self, field_info: AssetDataFieldInfo) -> list[str]:
+        """Internal method to get fields from `data_fields` with `field_info`."""
+        return [f for f, fi in self.data_fields() if fi & field_info]
 
 
 @mypyc_attr(allow_interpreted_subclasses=True)
@@ -68,30 +91,41 @@ class Asset(AssetBase):
     """Assets whose price history is represented by High, Low, Open, Close and Volume
     fields."""
 
-    @property
-    def fields_available_at_open(self) -> Sequence[str]:
-        return ["Open"]
+    def data_fields(self) -> list[tuple[str, AssetDataFieldInfo]]:
+        return [
+            ("High", _FI.AVAILABLE_AT_CLOSE),
+            ("Low", _FI.AVAILABLE_AT_CLOSE),
+            ("Open", _FI.AVAILABLE_AT_CLOSE | _FI.AVAILABLE_AT_OPEN),
+            ("Close", _FI.AVAILABLE_AT_CLOSE | _FI.REQUIRED),
+            ("Volume", _FI.AVAILABLE_AT_CLOSE),
+        ]
 
-    def intraday_traded_price(self, asset_day_data) -> Decimal:
+    def intraday_traded_price(
+        self, asset_day_data: pd.Series, size: Decimal | None = None
+    ) -> Decimal:
         if pd.notnull(asset_day_data.Low) and pd.notnull(asset_day_data.High):
             p = Decimal((asset_day_data.Low + asset_day_data.High) / 2)
         else:
             p = Decimal(asset_day_data.Close)
         return round(p, self.price_round_dp)
 
+    def end_of_day_price(self, asset_day_data: pd.Series) -> Decimal:
+        return round(Decimal(asset_day_data.Close), self.price_round_dp)
+
     def check_and_fix_data(self, data: pd.DataFrame) -> pd.DataFrame:
         # TODO: check low <= open, high, close & high >= open, low, close
         # TODO: check volume >= 0
 
         # check each asset has required fields
-        required_fields = {"Close"}
-        missing_req_fields = required_fields - set(data.columns)
+        required_fields = self._get_fields(_FI.REQUIRED)
+        missing_req_fields = set(required_fields) - set(data.columns)
         if len(missing_req_fields):
             raise ValueError(
-                f"data columns index requires fields {required_fields} and missing {missing_req_fields}"
+                f"data columns index requires fields {required_fields}"
+                f" and missing {missing_req_fields}"
             )
 
         # reindex columns with expected fields + additional fields
-        expected_fields = ["High", "Low", "Open", "Close", "Volume"]
+        expected_fields = self._get_fields(_FI.AVAILABLE_AT_CLOSE)
         other_fields = list(set(data.columns) - set(expected_fields))
         return data.reindex(expected_fields + other_fields, axis=1)
