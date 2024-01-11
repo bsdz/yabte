@@ -87,8 +87,8 @@ class Book:
         return True
 
     def add_transactions(self, transactions: Sequence[Transaction]):
-        """Records the `transactions` and adjusts internal dictionary of
-        positions and value of cash accordingly."""
+        """Records the `transactions` and adjusts internal dictionary of positions and
+        value of cash accordingly."""
         for tran in transactions:
             if isinstance(tran, Trade):
                 self.positions[tran.asset_name] += tran.quantity

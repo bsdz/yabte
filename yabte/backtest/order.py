@@ -101,8 +101,8 @@ class OrderBase:
     def apply(
         self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
     ):
-        """Applies order to `self.book` for time `ts` using provided `day_data`
-        and dictionary of asset information `asset_map`."""
+        """Applies order to `self.book` for time `ts` using provided `day_data` and
+        dictionary of asset information `asset_map`."""
         raise NotImplementedError("The apply methods needs to be implemented.")
 
 
@@ -192,8 +192,8 @@ class PositionalOrderCheckType(Enum):
 @mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class PositionalOrder(Order):
-    """Ensures current position is `size` and will close out existing positions
-    to achieve this."""
+    """Ensures current position is `size` and will close out existing positions to
+    achieve this."""
 
     check_type: PositionalOrderCheckType = PositionalOrderCheckType.POS_TQ_DIFFER
     """Condition type to determine if a trade is required."""
@@ -338,8 +338,8 @@ class BasketOrder(OrderBase):
 @mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class PositionalBasketOrder(BasketOrder):
-    """Similar to a :py:class:`BasketOrder` but will close out existing
-    positions if they do not match requested weights."""
+    """Similar to a :py:class:`BasketOrder` but will close out existing positions if
+    they do not match requested weights."""
 
     check_type: PositionalOrderCheckType = PositionalOrderCheckType.POS_TQ_DIFFER
 

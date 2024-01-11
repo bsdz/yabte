@@ -1,7 +1,5 @@
 from dataclasses import dataclass
 from decimal import Decimal
-
-# from enum import Flag, auto
 from typing import TypeAlias
 
 import pandas as pd
@@ -10,14 +8,11 @@ from mypy_extensions import mypyc_attr
 __all__ = ["Asset"]
 
 
-# use normal class until mypy supports flags
-class AssetDataFieldInfo:
-    AVAILABLE_AT_CLOSE: int = 1
-    AVAILABLE_AT_OPEN: int = 2
-    REQUIRED: int = 4
-
-
-_FI = AssetDataFieldInfo
+# use ints until mypyc supports IntFlag
+AssetDataFieldInfo = int
+ADFI_AVAILABLE_AT_CLOSE: int = 1
+ADFI_AVAILABLE_AT_OPEN: int = 2
+ADFI_REQUIRED: int = 4
 
 
 AssetName: TypeAlias = str
@@ -58,9 +53,12 @@ class AssetBase:
     def intraday_traded_price(
         self, asset_day_data: pd.Series, size: Decimal | None = None
     ) -> Decimal:
-        """Calculate price during market hours with given row of
-        `asset_day_data` and the order `size`. The `size` can be used to
-        determine a price from say, bid / ask spreads."""
+        """Calculate price during market hours with given row of `asset_day_data` and
+        the order `size`.
+
+        The `size` can be used to
+        determine a price from say, bid / ask spreads.
+        """
         raise NotImplementedError(
             "The intraday_traded_price method needs to be implemented."
         )
@@ -95,11 +93,11 @@ class Asset(AssetBase):
 
     def data_fields(self) -> list[tuple[str, AssetDataFieldInfo]]:
         return [
-            ("High", _FI.AVAILABLE_AT_CLOSE),
-            ("Low", _FI.AVAILABLE_AT_CLOSE),
-            ("Open", _FI.AVAILABLE_AT_CLOSE | _FI.AVAILABLE_AT_OPEN),
-            ("Close", _FI.AVAILABLE_AT_CLOSE | _FI.REQUIRED),
-            ("Volume", _FI.AVAILABLE_AT_CLOSE),
+            ("High", ADFI_AVAILABLE_AT_CLOSE),
+            ("Low", ADFI_AVAILABLE_AT_CLOSE),
+            ("Open", ADFI_AVAILABLE_AT_CLOSE | ADFI_AVAILABLE_AT_OPEN),
+            ("Close", ADFI_AVAILABLE_AT_CLOSE | ADFI_REQUIRED),
+            ("Volume", ADFI_AVAILABLE_AT_CLOSE),
         ]
 
     def intraday_traded_price(
@@ -119,7 +117,7 @@ class Asset(AssetBase):
         # TODO: check volume >= 0
 
         # check each asset has required fields
-        required_fields = self._get_fields(_FI.REQUIRED)
+        required_fields = self._get_fields(ADFI_REQUIRED)
         missing_req_fields = set(required_fields) - set(data.columns)
         if len(missing_req_fields):
             raise ValueError(
@@ -128,6 +126,6 @@ class Asset(AssetBase):
             )
 
         # reindex columns with expected fields + additional fields
-        expected_fields = self._get_fields(_FI.AVAILABLE_AT_CLOSE)
+        expected_fields = self._get_fields(ADFI_AVAILABLE_AT_CLOSE)
         other_fields = list(set(data.columns) - set(expected_fields))
         return data.reindex(expected_fields + other_fields, axis=1)

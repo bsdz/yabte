@@ -12,7 +12,7 @@ from mypy_extensions import mypyc_attr
 # (https://github.com/mypyc/mypyc/issues/1000)
 from pandas import DataFrame, Series, Timestamp  # type: ignore
 
-from .asset import Asset, AssetDataFieldInfo, AssetName
+from .asset import ADFI_AVAILABLE_AT_OPEN, Asset, AssetName
 from .book import Book, BookMandate, BookName
 from .order import Order, OrderBase, OrderStatus
 
@@ -111,7 +111,7 @@ class Strategy:
                     *[
                         product(
                             [asset.data_label],
-                            asset._get_fields(AssetDataFieldInfo.AVAILABLE_AT_OPEN),
+                            asset._get_fields(ADFI_AVAILABLE_AT_OPEN),
                         )
                         for asset_name, asset in self.assets.items()
                     ]
@@ -122,9 +122,8 @@ class Strategy:
 
     @property
     def data(self) -> pd.DataFrame:
-        """Provides window of data available up to current timestamp `self.ts`
-        and masks out data not availble at open (like high, low, close,
-        volume)."""
+        """Provides window of data available up to current timestamp `self.ts` and masks
+        out data not availble at open (like high, low, close, volume)."""
         if not self.ts:
             return self._data
         else:

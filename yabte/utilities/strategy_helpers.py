@@ -2,8 +2,8 @@ import pandas as pd
 
 
 def crossover(series1: pd.Series, series2: pd.Series) -> bool:
-    """Determine if two series cross over one another. Returns `True` if
-    `series1` just crosses above `series2`.
+    """Determine if two series cross over one another. Returns `True` if `series1` just
+    crosses above `series2`.
 
         >>> crossover(self.data.Close, self.sma)
         True

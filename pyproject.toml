@@ -26,6 +26,7 @@ isort = "^5.11.4"
 black = {extras = ["jupyter"], version = "^23.1.0"}
 docformatter = "^1.5.1"
 coverage = "^7.2.1"
+setuptools = "^69.0.3"
 
 [tool.poetry.group.docs]
 optional = true
