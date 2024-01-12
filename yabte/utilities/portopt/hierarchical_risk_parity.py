@@ -36,7 +36,7 @@ def _getClusterVar(cov, cItems):
 
 def _getRecBipart(cov, sortIx):
     # Compute HRP alloc
-    w = pd.Series(1, index=sortIx)
+    w = pd.Series(1., index=sortIx)
     cItems = [sortIx]  # initialize all items in one cluster
     while len(cItems) > 0:
         cItems = [

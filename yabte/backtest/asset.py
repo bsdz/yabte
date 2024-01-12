@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import TypeAlias
+from typing import TypeAlias, TypeVar, Union, cast
 
 import pandas as pd
 from mypy_extensions import mypyc_attr
@@ -14,6 +14,7 @@ ADFI_AVAILABLE_AT_CLOSE: int = 1
 ADFI_AVAILABLE_AT_OPEN: int = 2
 ADFI_REQUIRED: int = 4
 
+T = TypeVar("T", bound=Union[pd.Series, pd.DataFrame])
 
 AssetName: TypeAlias = str
 """Asset name string."""
@@ -83,6 +84,12 @@ class AssetBase:
     def _get_fields(self, field_info: AssetDataFieldInfo) -> list[str]:
         """Internal method to get fields from `data_fields` with `field_info`."""
         return [f for f, fi in self.data_fields() if fi & field_info]
+
+    def _filter_data(self, data: T) -> T:
+        """Internal method to filter `data` columns and return only those relevant to
+        pricing."""
+        assert isinstance(self.data_label, str)
+        return cast(T, data[self.data_label])
 
 
 @mypyc_attr(allow_interpreted_subclasses=True)

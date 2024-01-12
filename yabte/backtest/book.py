@@ -101,7 +101,7 @@ class Book:
             self.transactions.append(tran)
 
     def eod_tasks(
-        self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
+        self, ts: pd.Timestamp, day_data: pd.Series, asset_map: Dict[str, Asset]
     ):
         """Run end of day tasks such as book keeping."""
         # accumulate continously compounded interest
@@ -119,7 +119,7 @@ class Book:
         cash = float(self.cash)
         mtm = float(
             sum(
-                asset.end_of_day_price(day_data[asset.data_label]) * q
+                asset.end_of_day_price(asset._filter_data(day_data)) * q
                 for an, q in self.positions.items()
                 if (asset := asset_map.get(an))
             )

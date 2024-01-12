@@ -98,9 +98,7 @@ class OrderBase:
         """
         pass
 
-    def apply(
-        self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
-    ):
+    def apply(self, ts: pd.Timestamp, day_data: pd.Series, asset_map: Dict[str, Asset]):
         """Applies order to `self.book` for time `ts` using provided `day_data` and
         dictionary of asset information `asset_map`."""
         raise NotImplementedError("The apply methods needs to be implemented.")
@@ -128,9 +126,11 @@ class Order(OrderBase):
         self.size = ensure_decimal(self.size)
         self.size_type = ensure_enum(self.size_type, OrderSizeType)
 
-    def _calc_quantity_price(self, day_data, asset_map) -> Tuple[Decimal, Decimal]:
+    def _calc_quantity_price(
+        self, day_data: pd.Series, asset_map: Dict[str, Asset]
+    ) -> Tuple[Decimal, Decimal]:
         asset = asset_map[self.asset_name]
-        asset_day_data = day_data[asset.data_label]
+        asset_day_data = asset._filter_data(day_data)
         trade_price = asset.intraday_traded_price(asset_day_data, size=self.size)
 
         if self.size_type == OrderSizeType.QUANTITY:
@@ -159,9 +159,7 @@ class Order(OrderBase):
         """
         return None
 
-    def apply(
-        self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
-    ):
+    def apply(self, ts: pd.Timestamp, day_data: pd.Series, asset_map: Dict[str, Asset]):
         if not self.book or not isinstance(self.book, Book):
             raise RuntimeError("Cannot apply order without book instance")
 
@@ -202,9 +200,7 @@ class PositionalOrder(Order):
         super().__post_init__()
         self.check_type = ensure_enum(self.check_type, PositionalOrderCheckType)
 
-    def apply(
-        self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
-    ):
+    def apply(self, ts: pd.Timestamp, day_data: pd.Series, asset_map: Dict[str, Asset]):
         if not self.book or not isinstance(self.book, Book):
             raise RuntimeError("Cannot apply order without book instance")
 
@@ -275,10 +271,10 @@ class BasketOrder(OrderBase):
         self.size_type = ensure_enum(self.size_type, OrderSizeType)
 
     def _calc_quantity_price(
-        self, day_data, asset_map
+        self, day_data: pd.Series, asset_map: Dict[str, Asset]
     ) -> List[Tuple[Decimal, Decimal]]:
         assets = [asset_map[an] for an in self.asset_names]
-        assets_day_data = [day_data[a.data_label] for a in assets]
+        assets_day_data = [a._filter_data(day_data) for a in assets]
         trade_prices = [
             asset.intraday_traded_price(add, size=self.size)
             for asset, add in zip(assets, assets_day_data)
@@ -313,9 +309,7 @@ class BasketOrder(OrderBase):
             for a, q, tp in zip(assets, quantities, trade_prices)
         ]
 
-    def apply(
-        self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
-    ):
+    def apply(self, ts: pd.Timestamp, day_data: pd.Series, asset_map: Dict[str, Asset]):
         if not self.book or not isinstance(self.book, Book):
             raise RuntimeError("Cannot apply order without book instance")
 
@@ -343,9 +337,7 @@ class PositionalBasketOrder(BasketOrder):
 
     check_type: PositionalOrderCheckType = PositionalOrderCheckType.POS_TQ_DIFFER
 
-    def apply(
-        self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
-    ):
+    def apply(self, ts: pd.Timestamp, day_data: pd.Series, asset_map: Dict[str, Asset]):
         if not self.book or not isinstance(self.book, Book):
             raise RuntimeError("Cannot apply order without book instance")
 

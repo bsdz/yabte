@@ -9,6 +9,8 @@ def crossover(series1: pd.Series, series2: pd.Series) -> bool:
         True
     """
     try:
-        return series1[-2] < series2[-2] and series1[-1] > series2[-1]
+        return (
+            series1.iloc[-2] < series2.iloc[-2] and series1.iloc[-1] > series2.iloc[-1]
+        )
     except IndexError:
         return False

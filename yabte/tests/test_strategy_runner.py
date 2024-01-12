@@ -106,7 +106,7 @@ class TestSpreadSimpleStrat(Strategy):
 
     def on_close(self):
         p = self.params
-        s = self.data["SPREAD"].Close[-1]
+        s = self.data["SPREAD"].Close.iloc[-1]
         if s < self.mu - 0.5 * self.sigma:
             self.orders.append(PositionalOrder(asset_name=p.s1, size=100))
             self.orders.append(PositionalOrder(asset_name=p.s2, size=p.factor * 100))
@@ -159,7 +159,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
             th.pivot_table(index="ts", columns="book", values="nc", aggfunc="sum")
             .cumsum()
             .reindex(sr.data.index)
-            .fillna(method="ffill")
+            .ffill()
             .fillna(0)
         )
         self.assertTrue(
