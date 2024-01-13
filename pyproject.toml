@@ -51,6 +51,10 @@ nbconvert = "^7.2.9"
 [tool.isort]
 profile = "black"
 
+[[tool.mypy.overrides]]
+module = "plotly.*,scipy.*,matplotlib.*"
+ignore_missing_imports = true
+
 [build-system]
 requires = ["poetry-core>=1.0.0", "setuptools==69.0.2", "mypy==1.8.0", "pandas-stubs==2.1.4.231227"]
 build-backend = "poetry.core.masonry.api"

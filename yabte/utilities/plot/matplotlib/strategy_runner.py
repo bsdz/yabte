@@ -111,7 +111,7 @@ def plot_strategy_runner(sr: StrategyRunner, settings: dict[str, Any] | None = N
 
             vax = axs[2 * i + 1]
             vax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x/1000:,.0f}"))
-            vax.set_ylabel(f"Volume (thousands)")
+            vax.set_ylabel("Volume (thousands)")
             vax.fmt_xdata = date_formatter
 
             vax.bar(
