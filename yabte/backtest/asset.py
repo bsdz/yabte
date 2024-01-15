@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import TypeAlias, TypeVar, Union, cast
+from typing import TYPE_CHECKING, TypeAlias, TypeVar, Union, cast
 
 import pandas as pd
 from mypy_extensions import mypyc_attr
@@ -9,6 +11,7 @@ __all__ = ["Asset"]
 
 
 # use ints until mypyc supports IntFlag
+# https://github.com/mypyc/mypyc/issues/1022
 AssetDataFieldInfo = int
 ADFI_AVAILABLE_AT_CLOSE: int = 1
 ADFI_AVAILABLE_AT_OPEN: int = 2

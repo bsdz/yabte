@@ -193,7 +193,7 @@ def _check_data(df, asset_map):
 
     # check and fix data for each asset
     dfs = {
-        asset.data_label: asset.check_and_fix_data(df[asset.data_label])
+        asset.data_label: asset.check_and_fix_data(asset._filter_data(df))
         for asset_name, asset in asset_map.items()
     }
 

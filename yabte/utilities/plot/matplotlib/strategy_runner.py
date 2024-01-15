@@ -55,7 +55,7 @@ def plot_strategy_runner(sr: StrategyRunner, settings: dict[str, Any] | None = N
 
     for book, axs in zip(sr.books, axss.T):
         for i, asset in enumerate(traded_assets):
-            prices = sr.data[asset.data_label]
+            prices = asset._filter_data(sr.data)
 
             up = prices[prices.Close >= prices.Open]
             down = prices[prices.Close < prices.Open]

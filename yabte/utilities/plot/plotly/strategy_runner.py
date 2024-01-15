@@ -48,7 +48,7 @@ def plot_strategy_runner(sr: StrategyRunner, settings: dict[str, Any] | None = N
 
     for col, book in enumerate(sr.books, start=1):
         for row, asset in enumerate(traded_assets, start=1):
-            prices = sr.data[asset.data_label]
+            prices = asset._filter_data(sr.data)
 
             fig.add_trace(
                 go.Candlestick(
