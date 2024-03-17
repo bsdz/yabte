@@ -14,7 +14,7 @@ from pandas import DataFrame, Series, Timestamp  # type: ignore
 
 from .asset import ADFI_AVAILABLE_AT_OPEN, Asset, AssetName
 from .book import Book, BookMandate, BookName
-from .order import Order, OrderBase, OrderStatus
+from .order import Order, OrderStatus
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +34,10 @@ class Orders:
     def popleft(self):
         return self.deque.popleft()
 
-    def append(self, order: OrderBase):
+    def append(self, order: Order):
         return self.deque.append(order)
 
-    def extend(self, orders: Iterable[OrderBase]):
+    def extend(self, orders: Iterable[Order]):
         return self.deque.extend(orders)
 
     def sort_by_priority(self):
@@ -46,7 +46,7 @@ class Orders:
         self.deque.clear()
         self.deque.extend(ou_sorted)
 
-    def remove_duplicate_keys(self) -> List[OrderBase]:
+    def remove_duplicate_keys(self) -> List[Order]:
         """Remove older orders with same key.
 
         Returns a list of orders than were removed with status set to REPLACED.

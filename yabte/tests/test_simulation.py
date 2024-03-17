@@ -28,6 +28,7 @@ def _gbm_recover_weiner(T, N, M, r, p, sigma):
 class SimulationTestCase(NumpyTestCase):
     def setUp(self):
         self.rng = np.random.default_rng(12345)
+        super().setUp()
 
     def test_weiner_simple(self):
         R = [[1, 0.9], [0.9, 1]]

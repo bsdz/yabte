@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, TypeAlias, TypeVar, Union, cast
 import pandas as pd
 from mypy_extensions import mypyc_attr
 
-__all__ = ["Asset"]
+__all__ = ["OHLCAsset"]
 
 
 # use ints until mypyc supports IntFlag
@@ -25,7 +25,7 @@ AssetName: TypeAlias = str
 
 @mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
-class AssetBase:
+class Asset:
     """Anything that has a price."""
 
     name: AssetName
@@ -97,7 +97,7 @@ class AssetBase:
 
 @mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
-class Asset(AssetBase):
+class OHLCAsset(Asset):
     """Assets whose price history is represented by High, Low, Open, Close and Volume
     fields."""
 

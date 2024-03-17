@@ -6,14 +6,14 @@ import numpy as np
 import pandas as pd
 
 from yabte.backtest import (
-    Asset,
     BasketOrder,
     Book,
-    Order,
+    OHLCAsset,
     OrderSizeType,
     OrderStatus,
     PositionalBasketOrder,
     PositionalOrder,
+    SimpleOrder,
     Strategy,
     StrategyRunner,
 )
@@ -54,9 +54,9 @@ class TestSMAXOStrat(Strategy):
         data = df.loc[ix_2d, ("CloseSMAShort", "CloseSMALong")].dropna()
         if len(data) == 2:
             if crossover(data.CloseSMAShort, data.CloseSMALong):
-                self.orders.append(Order(asset_name=symbol, size=100))
+                self.orders.append(SimpleOrder(asset_name=symbol, size=100))
             elif crossover(data.CloseSMALong, data.CloseSMAShort):
-                self.orders.append(Order(asset_name=symbol, size=-100))
+                self.orders.append(SimpleOrder(asset_name=symbol, size=-100))
 
 
 class TestSMAXOMultipleBookStrat(TestSMAXOStrat):
@@ -71,11 +71,11 @@ class TestSMAXOMultipleBookStrat(TestSMAXOStrat):
             if len(data) == 2:
                 if crossover(data.CloseSMAShort, data.CloseSMALong):
                     self.orders.append(
-                        Order(book=book_name, asset_name=symbol, size=-100)
+                        SimpleOrder(book=book_name, asset_name=symbol, size=-100)
                     )
                 elif crossover(data.CloseSMALong, data.CloseSMAShort):
                     self.orders.append(
-                        Order(book=book_name, asset_name=symbol, size=100)
+                        SimpleOrder(book=book_name, asset_name=symbol, size=100)
                     )
 
 
@@ -328,13 +328,13 @@ class StrategyRunnerTestCase(unittest.TestCase):
 
         sr = StrategyRunner(
             data=data,
-            assets=[Asset(name="ACME"), Asset(name="BOKO")],
+            assets=[OHLCAsset(name="ACME"), OHLCAsset(name="BOKO")],
             strat_classes=[TestOnOpenMaskStrat],
         )
         sr.run()
 
     def test_limit_order(self):
-        class LimitOrder(Order):
+        class LimitOrder(SimpleOrder):
             def pre_execute_check(self, ts, tp):
                 # if goes above 110 then cancel
                 if tp > 110:
@@ -393,7 +393,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
 
                 sr = StrategyRunner(
                     data=data,
-                    assets=[Asset(name="ACME", denom="USD")],
+                    assets=[OHLCAsset(name="ACME", denom="USD")],
                     strat_classes=[TestLimitOrderStrat],
                 )
                 sr.run()
@@ -404,7 +404,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
                 )
 
     def test_stop_loss_order(self):
-        class StopLossOrder(Order):
+        class StopLossOrder(SimpleOrder):
             def pre_execute_check(self, ts, tp):
                 # if drops below 90 then complete stop order
                 if tp < 90:
@@ -412,7 +412,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
                 # otherwise leave open for another day
                 return OrderStatus.OPEN
 
-        class OrderWithStopLosses(Order):
+        class OrderWithStopLosses(SimpleOrder):
             def post_complete(self, trades):
                 self.suborders.extend(
                     [
@@ -464,7 +464,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
 
                 sr = StrategyRunner(
                     data=data,
-                    assets=[Asset(name="ACME", denom="USD")],
+                    assets=[OHLCAsset(name="ACME", denom="USD")],
                     strat_classes=[TestStopLossOrderStrat],
                 )
                 sr.run()
@@ -481,9 +481,15 @@ class StrategyRunnerTestCase(unittest.TestCase):
             def on_close(self):
                 ix = self.data.index.get_loc(self.ts)
                 if ix == 0:
-                    self.orders.append(Order(asset_name="ACME", size=100, priority=2))
-                    self.orders.append(Order(asset_name="ACME", size=200, priority=3))
-                    self.orders.append(Order(asset_name="ACME", size=300, priority=1))
+                    self.orders.append(
+                        SimpleOrder(asset_name="ACME", size=100, priority=2)
+                    )
+                    self.orders.append(
+                        SimpleOrder(asset_name="ACME", size=200, priority=3)
+                    )
+                    self.orders.append(
+                        SimpleOrder(asset_name="ACME", size=300, priority=1)
+                    )
 
         data_arr = [
             [105],
@@ -499,7 +505,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
 
         sr = StrategyRunner(
             data=data,
-            assets=[Asset(name="ACME", denom="USD")],
+            assets=[OHLCAsset(name="ACME", denom="USD")],
             strat_classes=[TestPriorityStrat],
         )
         sr.run()
@@ -510,7 +516,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
         )
 
     def test_order_key(self):
-        class LimitOrder(Order):
+        class LimitOrder(SimpleOrder):
             # this limit won't be met in test
             def pre_execute_check(self, ts, tp):
                 # if goes above 200 then complete order
@@ -546,7 +552,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
 
         sr = StrategyRunner(
             data=data,
-            assets=[Asset(name="ACME", denom="USD")],
+            assets=[OHLCAsset(name="ACME", denom="USD")],
             strat_classes=[TestOrderkeyStrat],
         )
         sr.run()

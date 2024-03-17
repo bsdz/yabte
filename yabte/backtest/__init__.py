@@ -4,32 +4,32 @@ from yabte.backtest.asset import (
     ADFI_AVAILABLE_AT_CLOSE,
     ADFI_AVAILABLE_AT_OPEN,
     ADFI_REQUIRED,
-    Asset,
     AssetDataFieldInfo,
     AssetName,
+    OHLCAsset,
 )
 from yabte.backtest.book import Book, BookMandate, BookName
 from yabte.backtest.order import (
     BasketOrder,
-    Order,
     OrderSizeType,
     OrderStatus,
     PositionalBasketOrder,
     PositionalOrder,
     PositionalOrderCheckType,
+    SimpleOrder,
 )
 from yabte.backtest.strategy import Strategy, StrategyRunner
 from yabte.backtest.transaction import CashTransaction, Trade
 
 __all__ = [
-    "Asset",
+    "OHLCAsset",
     "AssetDataFieldInfo",
     "AssetName",
     "Book",
     "BookName",
     "BookMandate",
     "CashTransaction",
-    "Order",
+    "SimpleOrder",
     "OrderSizeType",
     "OrderStatus",
     "BasketOrder",

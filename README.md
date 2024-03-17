@@ -25,7 +25,7 @@ Below is an example usage (the performance of the example strategy won't be good
 ```python
 import pandas as pd
 
-from yabte.backtest import Strategy, StrategyRunner, Order, Book
+from yabte.backtest import Strategy, StrategyRunner, SimpleOrder, Book
 from yabte.utilities.plot.plotly.strategy_runner import plot_strategy_runner
 from yabte.utilities.strategy_helpers import crossover
 from yabte.tests._helpers import generate_nasdaq_dataset
@@ -64,9 +64,9 @@ class SMAXO(Strategy):
             data = df.loc[ix_2d, ("CloseSMAShort", "CloseSMALong")].dropna()
             if len(data) == 2:
                 if crossover(data.CloseSMAShort, data.CloseSMALong):
-                    self.orders.append(Order(asset_name=symbol, size=-100))
+                    self.orders.append(SimpleOrder(asset_name=symbol, size=-100))
                 elif crossover(data.CloseSMALong, data.CloseSMAShort):
-                    self.orders.append(Order(asset_name=symbol, size=100))
+                    self.orders.append(SimpleOrder(asset_name=symbol, size=100))
 
 
 # load some data

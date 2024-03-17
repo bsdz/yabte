@@ -16,7 +16,7 @@ from .transaction import Trade
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["Order", "PositionalOrder", "BasketOrder", "PositionalBasketOrder"]
+__all__ = ["SimpleOrder", "PositionalOrder", "BasketOrder", "PositionalBasketOrder"]
 
 
 class OrderStatus(Enum):
@@ -53,7 +53,7 @@ class OrderSizeType(Enum):
 
 @mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
-class OrderBase:
+class Order:
     """Base class for all orders."""
 
     status: OrderStatus = OrderStatus.OPEN
@@ -62,7 +62,7 @@ class OrderBase:
     book: BookName | Book | None = field(repr=False, default=None)
     """Target book."""
 
-    suborders: List[OrderBase] = field(default_factory=list)
+    suborders: List[Order] = field(default_factory=list)
     """Additional orders to be executed the following timestep."""
 
     label: Optional[str] = None
@@ -106,7 +106,7 @@ class OrderBase:
 
 @mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
-class Order(OrderBase):
+class SimpleOrder(Order):
     """Simple market order."""
 
     asset_name: AssetName
@@ -189,7 +189,7 @@ class PositionalOrderCheckType(Enum):
 
 @mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
-class PositionalOrder(Order):
+class PositionalOrder(SimpleOrder):
     """Ensures current position is `size` and will close out existing positions to
     achieve this."""
 
@@ -249,7 +249,7 @@ class PositionalOrder(Order):
 
 @mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass
-class BasketOrder(OrderBase):
+class BasketOrder(Order):
     """Combine multiple assets into a single order."""
 
     asset_names: List[AssetName]
