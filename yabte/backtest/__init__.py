@@ -18,7 +18,8 @@ from yabte.backtest.order import (
     PositionalOrderCheckType,
     SimpleOrder,
 )
-from yabte.backtest.strategy import Strategy, StrategyRunner
+from yabte.backtest.strategy import Strategy
+from yabte.backtest.strategyrunner import StrategyRunner
 from yabte.backtest.transaction import CashTransaction, Trade
 
 __all__ = [
