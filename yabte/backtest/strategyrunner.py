@@ -1,7 +1,7 @@
 import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
@@ -54,6 +54,47 @@ def _check_data(df, asset_map):
 
 
 @dataclass(kw_only=True)
+class StrategyRunnerResult:
+
+    books: List[Book]
+    """Books used within this result."""
+
+    strategies: List[Strategy]
+    """Strategies used within this result."""
+
+    assets: List[Asset]
+    """Assets used within this result."""
+
+    _orders_unprocessed: Orders = field(default_factory=Orders)
+
+    @property
+    def orders_unprocessed(self) -> Orders:
+        """Unprocessed orders queue."""
+        return self._orders_unprocessed
+
+    _orders_processed: List[Order] = field(default_factory=list)
+
+    @property
+    def orders_processed(self) -> List[Order]:
+        """Processed orders list."""
+        return self._orders_processed
+
+    _book_history: Optional[pd.DataFrame] = None
+
+    @property
+    def book_history(self) -> pd.DataFrame:
+        """Dataframe with book cash, mtm and total value history."""
+        return pd.concat({b.name: b.history for b in self.books}, axis=1)
+
+    @property
+    def transaction_history(self) -> pd.DataFrame:
+        """Dataframe with trade history."""
+        return pd.concat(
+            [pd.DataFrame(bk.transactions).assign(book=bk.name) for bk in self.books]
+        )
+
+
+@dataclass(kw_only=True)
 class StrategyRunner:
     """Encapsulates the execution of multiple strategies.
 
@@ -74,14 +115,11 @@ class StrategyRunner:
     assets: List[Asset]
     """Assets available to strategy."""
 
-    strat_classes: List[Type[Strategy]]
-    """Strategy classes to be called within this runner."""
+    strategies: List[Strategy]
+    """Strategies to be called within this runner."""
 
     mandates: Dict[AssetName, BookMandate] = field(default_factory=dict)
     """Dictionary of asset mandates (experimental)."""
-
-    strat_params: Dict[str, Any] = field(default_factory=dict)
-    """Parameters passed to all strategies."""
 
     books: List[Book] = field(default_factory=list)
     """Books available to strategies.
@@ -89,79 +127,38 @@ class StrategyRunner:
     If not supplied will be populated with single book named 'Main' denominated in USD.
     """
 
-    @property
-    def book_map(self) -> Dict[BookName, Book]:
-        """Mapping from book name to book instance."""
-        return {book.name: book for book in self.books}
-
-    @property
-    def asset_map(self) -> Dict[AssetName, Asset]:
-        """Mapping from asset name to asset instance."""
-        return {asset.name: asset for asset in self.assets}
-
-    _orders_unprocessed: Orders = field(default_factory=Orders)
-
-    @property
-    def orders_unprocessed(self) -> Orders:
-        """Unprocessed orders queue."""
-        return self._orders_unprocessed
-
-    _orders_processed: List[Order] = field(default_factory=list)
-
-    @property
-    def orders_processed(self) -> List[Order]:
-        """Processed orders list."""
-        return self._orders_processed
-
-    _strategies: List[Strategy] = field(default_factory=list)
-
-    @property
-    def strategies(self) -> List[Strategy]:
-        """List of instantiated strategies."""
-        return self._strategies
-
-    _book_history: Optional[pd.DataFrame] = None
-
-    @property
-    def book_history(self) -> pd.DataFrame:
-        """Dataframe with book cash, mtm and total value history."""
-        return pd.concat({b.name: b.history for b in self.books}, axis=1)
-
-    @property
-    def transaction_history(self) -> pd.DataFrame:
-        """Dataframe with trade history."""
-        return pd.concat(
-            [pd.DataFrame(bk.transactions).assign(book=bk.name) for bk in self.books]
-        )
-
     def __post_init__(self):
-        self.data = _check_data(self.data, self.asset_map)
+        asset_map = {asset.name: asset for asset in self.assets}
+        self.data = _check_data(self.data, asset_map)
 
         # set up books
         if not self.books:
             self.books = [Book(name="Main", mandates=self.mandates)]
 
-    def run(self):
+    def run(self, params: Dict[str, Any] = None) -> StrategyRunnerResult:
         """Execute each strategy through time."""
 
+        params = pd.Series(params or {}, dtype=object)
+
+        srr = StrategyRunnerResult(
+            assets=deepcopy(self.assets),  # should not be mutable
+            books=deepcopy(self.books),
+            strategies=deepcopy(self.strategies),
+        )
+
         # made available where necessary
-        asset_map = self.asset_map
-        book_map = self.book_map
+        asset_map = {asset.name: asset for asset in srr.assets}
+        book_map = {book.name: book for book in srr.books}
 
         # calendar
         calendar = self.data.index
 
-        # set up strategies
-        self._strategies = [
-            cls(
-                orders=self._orders_unprocessed,
-                params=pd.Series(self.strat_params, dtype=object),
-                books=book_map,
-                assets=asset_map,
-            )
-            for cls in self.strat_classes
-        ]
-        for strat in self._strategies:
+        for strat in srr.strategies:
+            strat.params = params
+            strat.orders = srr._orders_unprocessed
+            strat.books = book_map
+            strat.assets = asset_map
+
             strat._data_lock = False
             strat.data = deepcopy(self.data)
             strat.init()
@@ -172,7 +169,7 @@ class StrategyRunner:
             logger.info(f"Processing timestep {ts}")
 
             # open
-            for strat in self._strategies:
+            for strat in srr.strategies:
                 # provide window
                 strat._set_ts(ts)
                 strat._mask_open = True
@@ -183,17 +180,17 @@ class StrategyRunner:
             day_data = self.data.loc[ts, :]
 
             # sort orders by priority
-            self._orders_unprocessed.sort_by_priority()
+            srr._orders_unprocessed.sort_by_priority()
 
             # process orders
             orders_next_ts = []
-            while self._orders_unprocessed:
-                order = self._orders_unprocessed.popleft()
+            while srr._orders_unprocessed:
+                order = srr._orders_unprocessed.popleft()
 
                 # set book attribute if needed
                 if not isinstance(order.book, Book):
                     # fall back to first available book
-                    order.book = book_map.get(order.book, self.books[0])
+                    order.book = book_map.get(order.book, srr.books[0])
 
                 order.apply(ts, day_data, asset_map)
 
@@ -203,21 +200,23 @@ class StrategyRunner:
                 if order.status == OrderStatus.OPEN:
                     orders_next_ts.append(order)
                 else:
-                    self.orders_processed.append(order)
+                    srr.orders_processed.append(order)
 
             # extend with orders for next ts
-            self._orders_unprocessed.extend(orders_next_ts)
+            srr._orders_unprocessed.extend(orders_next_ts)
 
             # remove older duplicate orders
-            replaced = self._orders_unprocessed.remove_duplicate_keys()
-            self.orders_processed.extend(replaced)
+            replaced = srr._orders_unprocessed.remove_duplicate_keys()
+            srr.orders_processed.extend(replaced)
 
             # close
-            for strat in self._strategies:
+            for strat in srr.strategies:
                 # provide window
                 strat._set_ts(ts)
                 strat.on_close()
 
             # run book end-of-day tasks
-            for book in self.books:
+            for book in srr.books:
                 book.eod_tasks(ts, day_data, asset_map)
+
+        return srr

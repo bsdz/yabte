@@ -19,7 +19,7 @@ from yabte.backtest.order import (
     SimpleOrder,
 )
 from yabte.backtest.strategy import Strategy
-from yabte.backtest.strategyrunner import StrategyRunner
+from yabte.backtest.strategyrunner import StrategyRunner, StrategyRunnerResult
 from yabte.backtest.transaction import CashTransaction, Trade
 
 __all__ = [
@@ -40,6 +40,7 @@ __all__ = [
     "Trade",
     "Strategy",
     "StrategyRunner",
+    "StrategyRunnerResult",
     "ADFI_AVAILABLE_AT_CLOSE",
     "ADFI_AVAILABLE_AT_OPEN",
     "ADFI_REQUIRED",

@@ -28,16 +28,16 @@ class Strategy:
     :py:class:`StrategyRunner`.
     """
 
-    orders: Orders
+    orders: Orders | None = None
     """Double ended queue of orders."""
 
-    params: pd.Series
+    params: pd.Series | None = None
     """Parameters supplied to strategy."""
 
-    books: Dict[BookName, Book]
+    books: Dict[BookName, Book] | None = None
     """Dictionary of books."""
 
-    assets: Dict[AssetName, Asset]
+    assets: Dict[AssetName, Asset] | None = None
     """Dictionary of assets."""
 
     _ts: pd.Timestamp | None = None

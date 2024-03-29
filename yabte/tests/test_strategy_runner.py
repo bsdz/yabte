@@ -149,11 +149,11 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr = StrategyRunner(
             data=self.df_combined,
             assets=self.assets,
-            strat_classes=[TestSMAXOStrat],
+            strategies=[TestSMAXOStrat()],
         )
-        sr.run()
+        srr = sr.run()
 
-        th = sr.transaction_history
+        th = srr.transaction_history
         th["nc"] = -th.quantity * th.price
         bch = (
             th.pivot_table(index="ts", columns="book", values="nc", aggfunc="sum")
@@ -166,7 +166,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
             np.all(
                 np.isclose(
                     bch.astype("float64"),
-                    sr.book_history.loc[:, (slice(None), "cash")].droplevel(
+                    srr.book_history.loc[:, (slice(None), "cash")].droplevel(
                         axis=1, level=1
                     ),
                 )
@@ -182,14 +182,14 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr = StrategyRunner(
             data=self.df_combined,
             assets=self.assets,
-            strat_classes=[TestSMAXOMultipleBookStrat],
+            strategies=[TestSMAXOMultipleBookStrat()],
             books=books,
         )
-        sr.run()
+        srr = sr.run()
 
-        th = sr.transaction_history
+        th = srr.transaction_history
         self.assertEqual(len(th.book.unique()), 2)
-        bh = sr.book_history
+        bh = srr.book_history
         self.assertEqual(len(bh.columns.levels[0]), 2)
 
     def test_positional_orders_quantity(self):
@@ -197,26 +197,24 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr = StrategyRunner(
             data=self.df_combined,
             assets=self.assets,
-            strat_classes=[TestPosOrderSizeStrat],
-            strat_params={"size_type": OrderSizeType.QUANTITY, "size_factor": 100},
+            strategies=[TestPosOrderSizeStrat()],
         )
-        sr.run()
+        srr = sr.run(params={"size_type": OrderSizeType.QUANTITY, "size_factor": 100})
 
         # 8 = ococococ
-        self.assertEqual(len(sr.books[0].transactions), 8)
+        self.assertEqual(len(srr.books[0].transactions), 8)
 
     def test_positional_orders_notional(self):
         # test using notionals
         sr = StrategyRunner(
             data=self.df_combined,
             assets=self.assets,
-            strat_classes=[TestPosOrderSizeStrat],
-            strat_params={"size_type": OrderSizeType.NOTIONAL, "size_factor": 1000},
+            strategies=[TestPosOrderSizeStrat()],
         )
-        sr.run()
+        srr = sr.run(params={"size_type": OrderSizeType.NOTIONAL, "size_factor": 1000})
 
         # 8 = ococococ
-        self.assertEqual(len(sr.books[0].transactions), 8)
+        self.assertEqual(len(srr.books[0].transactions), 8)
 
     def test_positional_orders_book_percent(self):
         # test using book percent
@@ -227,20 +225,21 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr = StrategyRunner(
             data=self.df_combined,
             assets=self.assets,
-            strat_classes=[TestPosOrderSizeStrat],
-            strat_params={
-                "size_type": OrderSizeType.BOOK_PERCENT,
-                "size_factor": 10000,
-            },
+            strategies=[TestPosOrderSizeStrat()],
             books=[book],
         )
-        sr.run()
+        srr = sr.run(
+            params={
+                "size_type": OrderSizeType.BOOK_PERCENT,
+                "size_factor": 10000,
+            }
+        )
 
         # 8 = ococococ
-        self.assertEqual(len(sr.books[0].transactions), 8)
+        self.assertEqual(len(srr.books[0].transactions), 8)
 
     def test_spread_simple(self):
-        strat_params = {
+        params = {
             "s1": "GOOG",
             "s2": "MSFT",
             "factor": 4.5,
@@ -248,12 +247,11 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr = StrategyRunner(
             data=self.df_combined,
             assets=self.assets,
-            strat_classes=[TestSpreadSimpleStrat],
-            strat_params=strat_params,
+            strategies=[TestSpreadSimpleStrat()],
         )
-        sr.run()
+        srr = sr.run(params)
 
-        df_trades = pd.DataFrame(sr.books[0].transactions)
+        df_trades = pd.DataFrame(srr.books[0].transactions)
         self.assertEqual(len(df_trades), 6)
         self.assertEqual(len(df_trades.query("asset_name == 'GOOG'")), 3)
         self.assertEqual(len(df_trades.query("asset_name == 'MSFT'")), 3)
@@ -263,13 +261,12 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr = StrategyRunner(
             data=self.df_combined,
             assets=self.assets,
-            strat_classes=[TestBasketOrderSizeStrat],
-            strat_params={"size_type": OrderSizeType.QUANTITY},
+            strategies=[TestBasketOrderSizeStrat()],
         )
-        sr.run()
+        srr = sr.run(params={"size_type": OrderSizeType.QUANTITY})
 
         # 20 = 4 x ttttc
-        self.assertEqual(len(sr.books[0].transactions), 20)
+        self.assertEqual(len(srr.books[0].transactions), 20)
 
     def test_on_open_masking(self):
         class TestOnOpenMaskStrat(Strategy):
@@ -329,7 +326,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr = StrategyRunner(
             data=data,
             assets=[OHLCAsset(name="ACME"), OHLCAsset(name="BOKO")],
-            strat_classes=[TestOnOpenMaskStrat],
+            strategies=[TestOnOpenMaskStrat()],
         )
         sr.run()
 
@@ -394,13 +391,15 @@ class StrategyRunnerTestCase(unittest.TestCase):
                 sr = StrategyRunner(
                     data=data,
                     assets=[OHLCAsset(name="ACME", denom="USD")],
-                    strat_classes=[TestLimitOrderStrat],
+                    strategies=[TestLimitOrderStrat()],
                 )
-                sr.run()
+                srr = sr.run()
 
-                self.assertListEqual(op_status, [o.status for o in sr.orders_processed])
                 self.assertListEqual(
-                    ou_status, [o.status for o in sr.orders_unprocessed]
+                    op_status, [o.status for o in srr.orders_processed]
+                )
+                self.assertListEqual(
+                    ou_status, [o.status for o in srr.orders_unprocessed]
                 )
 
     def test_stop_loss_order(self):
@@ -465,15 +464,15 @@ class StrategyRunnerTestCase(unittest.TestCase):
                 sr = StrategyRunner(
                     data=data,
                     assets=[OHLCAsset(name="ACME", denom="USD")],
-                    strat_classes=[TestStopLossOrderStrat],
+                    strategies=[TestStopLossOrderStrat()],
                 )
-                sr.run()
+                srr = sr.run()
 
                 self.assertListEqual(
-                    op_status, [(o.status, o.label) for o in sr.orders_processed]
+                    op_status, [(o.status, o.label) for o in srr.orders_processed]
                 )
                 self.assertListEqual(
-                    ou_status, [(o.status, o.label) for o in sr.orders_unprocessed]
+                    ou_status, [(o.status, o.label) for o in srr.orders_unprocessed]
                 )
 
     def test_priority(self):
@@ -506,12 +505,12 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr = StrategyRunner(
             data=data,
             assets=[OHLCAsset(name="ACME", denom="USD")],
-            strat_classes=[TestPriorityStrat],
+            strategies=[TestPriorityStrat()],
         )
-        sr.run()
+        srr = sr.run()
 
         self.assertListEqual(
-            sr.transaction_history.quantity.to_list(),
+            srr.transaction_history.quantity.to_list(),
             [Decimal("200.00"), Decimal("100.00"), Decimal("300.00")],
         )
 
@@ -553,15 +552,15 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr = StrategyRunner(
             data=data,
             assets=[OHLCAsset(name="ACME", denom="USD")],
-            strat_classes=[TestOrderkeyStrat],
+            strategies=[TestOrderkeyStrat()],
         )
-        sr.run()
+        srr = sr.run()
 
         self.assertListEqual(
             [
                 (OrderStatus.REPLACED, "my_key", Decimal("100")),
             ],
-            [(o.status, o.key, o.size) for o in sr.orders_processed],
+            [(o.status, o.key, o.size) for o in srr.orders_processed],
         )
 
         self.assertListEqual(
@@ -569,7 +568,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
                 (OrderStatus.OPEN, None, Decimal("200")),
                 (OrderStatus.OPEN, "my_key", Decimal("300")),
             ],
-            [(o.status, o.key, o.size) for o in sr.orders_unprocessed],
+            [(o.status, o.key, o.size) for o in srr.orders_unprocessed],
         )
 
 
