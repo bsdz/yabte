@@ -9,7 +9,14 @@ Strategy
       :members:
       :member-order: bysource
 
-SimpleOrder
+StrategyRunner
+--------------
+
+   .. automodule:: yabte.backtest.strategyrunner
+      :members:
+      :member-order: bysource
+
+Order
 -----
    .. autoclass:: yabte.backtest.order.OrderStatus
       :members:
@@ -39,7 +46,7 @@ Book
       :members:
       :member-order: bysource
 
-OHLCAsset
+Asset
 -----
 
    .. automodule:: yabte.backtest.asset

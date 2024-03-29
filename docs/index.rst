@@ -100,10 +100,10 @@ To run our strategy, we use a StrategyRunner:
       # index containing timestamps.
       data=pd.concat([df_goog, df_msft], axis=1),
       assets=assets,
-      strat_classes=[SMAXO],
+      strategies=[SMAXO()],
       books=[book],
    )
-   sr.run()
+   srr = sr.run()
 
 
 Once a runner has completed we can access book value history and transaction history
@@ -111,8 +111,8 @@ via our instance:
 
 .. code-block:: python
 
-   th = sr.transaction_history
-   bch = sr.book_history
+   th = srr.transaction_history
+   bch = srr.book_history
 
 
 .. toctree::
