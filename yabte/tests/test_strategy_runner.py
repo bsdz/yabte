@@ -6,14 +6,14 @@ import numpy as np
 import pandas as pd
 
 from yabte.backtest import (
-    Asset,
     BasketOrder,
     Book,
-    Order,
+    OHLCAsset,
     OrderSizeType,
     OrderStatus,
     PositionalBasketOrder,
     PositionalOrder,
+    SimpleOrder,
     Strategy,
     StrategyRunner,
 )
@@ -54,9 +54,9 @@ class TestSMAXOStrat(Strategy):
         data = df.loc[ix_2d, ("CloseSMAShort", "CloseSMALong")].dropna()
         if len(data) == 2:
             if crossover(data.CloseSMAShort, data.CloseSMALong):
-                self.orders.append(Order(asset_name=symbol, size=100))
+                self.orders.append(SimpleOrder(asset_name=symbol, size=100))
             elif crossover(data.CloseSMALong, data.CloseSMAShort):
-                self.orders.append(Order(asset_name=symbol, size=-100))
+                self.orders.append(SimpleOrder(asset_name=symbol, size=-100))
 
 
 class TestSMAXOMultipleBookStrat(TestSMAXOStrat):
@@ -71,11 +71,11 @@ class TestSMAXOMultipleBookStrat(TestSMAXOStrat):
             if len(data) == 2:
                 if crossover(data.CloseSMAShort, data.CloseSMALong):
                     self.orders.append(
-                        Order(book=book_name, asset_name=symbol, size=-100)
+                        SimpleOrder(book=book_name, asset_name=symbol, size=-100)
                     )
                 elif crossover(data.CloseSMALong, data.CloseSMAShort):
                     self.orders.append(
-                        Order(book=book_name, asset_name=symbol, size=100)
+                        SimpleOrder(book=book_name, asset_name=symbol, size=100)
                     )
 
 
@@ -106,7 +106,7 @@ class TestSpreadSimpleStrat(Strategy):
 
     def on_close(self):
         p = self.params
-        s = self.data["SPREAD"].Close[-1]
+        s = self.data["SPREAD"].Close.iloc[-1]
         if s < self.mu - 0.5 * self.sigma:
             self.orders.append(PositionalOrder(asset_name=p.s1, size=100))
             self.orders.append(PositionalOrder(asset_name=p.s2, size=p.factor * 100))
@@ -149,24 +149,24 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr = StrategyRunner(
             data=self.df_combined,
             assets=self.assets,
-            strat_classes=[TestSMAXOStrat],
+            strategies=[TestSMAXOStrat()],
         )
-        sr.run()
+        srr = sr.run()
 
-        th = sr.transaction_history
+        th = srr.transaction_history
         th["nc"] = -th.quantity * th.price
         bch = (
             th.pivot_table(index="ts", columns="book", values="nc", aggfunc="sum")
             .cumsum()
             .reindex(sr.data.index)
-            .fillna(method="ffill")
+            .ffill()
             .fillna(0)
         )
         self.assertTrue(
             np.all(
                 np.isclose(
                     bch.astype("float64"),
-                    sr.book_history.loc[:, (slice(None), "cash")].droplevel(
+                    srr.book_history.loc[:, (slice(None), "cash")].droplevel(
                         axis=1, level=1
                     ),
                 )
@@ -182,14 +182,14 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr = StrategyRunner(
             data=self.df_combined,
             assets=self.assets,
-            strat_classes=[TestSMAXOMultipleBookStrat],
+            strategies=[TestSMAXOMultipleBookStrat()],
             books=books,
         )
-        sr.run()
+        srr = sr.run()
 
-        th = sr.transaction_history
+        th = srr.transaction_history
         self.assertEqual(len(th.book.unique()), 2)
-        bh = sr.book_history
+        bh = srr.book_history
         self.assertEqual(len(bh.columns.levels[0]), 2)
 
     def test_positional_orders_quantity(self):
@@ -197,26 +197,24 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr = StrategyRunner(
             data=self.df_combined,
             assets=self.assets,
-            strat_classes=[TestPosOrderSizeStrat],
-            strat_params={"size_type": OrderSizeType.QUANTITY, "size_factor": 100},
+            strategies=[TestPosOrderSizeStrat()],
         )
-        sr.run()
+        srr = sr.run(params={"size_type": OrderSizeType.QUANTITY, "size_factor": 100})
 
         # 8 = ococococ
-        self.assertEqual(len(sr.books[0].transactions), 8)
+        self.assertEqual(len(srr.books[0].transactions), 8)
 
     def test_positional_orders_notional(self):
         # test using notionals
         sr = StrategyRunner(
             data=self.df_combined,
             assets=self.assets,
-            strat_classes=[TestPosOrderSizeStrat],
-            strat_params={"size_type": OrderSizeType.NOTIONAL, "size_factor": 1000},
+            strategies=[TestPosOrderSizeStrat()],
         )
-        sr.run()
+        srr = sr.run(params={"size_type": OrderSizeType.NOTIONAL, "size_factor": 1000})
 
         # 8 = ococococ
-        self.assertEqual(len(sr.books[0].transactions), 8)
+        self.assertEqual(len(srr.books[0].transactions), 8)
 
     def test_positional_orders_book_percent(self):
         # test using book percent
@@ -227,20 +225,21 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr = StrategyRunner(
             data=self.df_combined,
             assets=self.assets,
-            strat_classes=[TestPosOrderSizeStrat],
-            strat_params={
-                "size_type": OrderSizeType.BOOK_PERCENT,
-                "size_factor": 10000,
-            },
+            strategies=[TestPosOrderSizeStrat()],
             books=[book],
         )
-        sr.run()
+        srr = sr.run(
+            params={
+                "size_type": OrderSizeType.BOOK_PERCENT,
+                "size_factor": 10000,
+            }
+        )
 
         # 8 = ococococ
-        self.assertEqual(len(sr.books[0].transactions), 8)
+        self.assertEqual(len(srr.books[0].transactions), 8)
 
     def test_spread_simple(self):
-        strat_params = {
+        params = {
             "s1": "GOOG",
             "s2": "MSFT",
             "factor": 4.5,
@@ -248,12 +247,11 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr = StrategyRunner(
             data=self.df_combined,
             assets=self.assets,
-            strat_classes=[TestSpreadSimpleStrat],
-            strat_params=strat_params,
+            strategies=[TestSpreadSimpleStrat()],
         )
-        sr.run()
+        srr = sr.run(params)
 
-        df_trades = pd.DataFrame(sr.books[0].transactions)
+        df_trades = pd.DataFrame(srr.books[0].transactions)
         self.assertEqual(len(df_trades), 6)
         self.assertEqual(len(df_trades.query("asset_name == 'GOOG'")), 3)
         self.assertEqual(len(df_trades.query("asset_name == 'MSFT'")), 3)
@@ -263,13 +261,12 @@ class StrategyRunnerTestCase(unittest.TestCase):
         sr = StrategyRunner(
             data=self.df_combined,
             assets=self.assets,
-            strat_classes=[TestBasketOrderSizeStrat],
-            strat_params={"size_type": OrderSizeType.QUANTITY},
+            strategies=[TestBasketOrderSizeStrat()],
         )
-        sr.run()
+        srr = sr.run(params={"size_type": OrderSizeType.QUANTITY})
 
         # 20 = 4 x ttttc
-        self.assertEqual(len(sr.books[0].transactions), 20)
+        self.assertEqual(len(srr.books[0].transactions), 20)
 
     def test_on_open_masking(self):
         class TestOnOpenMaskStrat(Strategy):
@@ -328,13 +325,13 @@ class StrategyRunnerTestCase(unittest.TestCase):
 
         sr = StrategyRunner(
             data=data,
-            assets=[Asset(name="ACME"), Asset(name="BOKO")],
-            strat_classes=[TestOnOpenMaskStrat],
+            assets=[OHLCAsset(name="ACME"), OHLCAsset(name="BOKO")],
+            strategies=[TestOnOpenMaskStrat()],
         )
         sr.run()
 
     def test_limit_order(self):
-        class LimitOrder(Order):
+        class LimitOrder(SimpleOrder):
             def pre_execute_check(self, ts, tp):
                 # if goes above 110 then cancel
                 if tp > 110:
@@ -393,18 +390,20 @@ class StrategyRunnerTestCase(unittest.TestCase):
 
                 sr = StrategyRunner(
                     data=data,
-                    assets=[Asset(name="ACME", denom="USD")],
-                    strat_classes=[TestLimitOrderStrat],
+                    assets=[OHLCAsset(name="ACME", denom="USD")],
+                    strategies=[TestLimitOrderStrat()],
                 )
-                sr.run()
+                srr = sr.run()
 
-                self.assertListEqual(op_status, [o.status for o in sr.orders_processed])
                 self.assertListEqual(
-                    ou_status, [o.status for o in sr.orders_unprocessed]
+                    op_status, [o.status for o in srr.orders_processed]
+                )
+                self.assertListEqual(
+                    ou_status, [o.status for o in srr.orders_unprocessed]
                 )
 
     def test_stop_loss_order(self):
-        class StopLossOrder(Order):
+        class StopLossOrder(SimpleOrder):
             def pre_execute_check(self, ts, tp):
                 # if drops below 90 then complete stop order
                 if tp < 90:
@@ -412,7 +411,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
                 # otherwise leave open for another day
                 return OrderStatus.OPEN
 
-        class OrderWithStopLosses(Order):
+        class OrderWithStopLosses(SimpleOrder):
             def post_complete(self, trades):
                 self.suborders.extend(
                     [
@@ -464,16 +463,16 @@ class StrategyRunnerTestCase(unittest.TestCase):
 
                 sr = StrategyRunner(
                     data=data,
-                    assets=[Asset(name="ACME", denom="USD")],
-                    strat_classes=[TestStopLossOrderStrat],
+                    assets=[OHLCAsset(name="ACME", denom="USD")],
+                    strategies=[TestStopLossOrderStrat()],
                 )
-                sr.run()
+                srr = sr.run()
 
                 self.assertListEqual(
-                    op_status, [(o.status, o.label) for o in sr.orders_processed]
+                    op_status, [(o.status, o.label) for o in srr.orders_processed]
                 )
                 self.assertListEqual(
-                    ou_status, [(o.status, o.label) for o in sr.orders_unprocessed]
+                    ou_status, [(o.status, o.label) for o in srr.orders_unprocessed]
                 )
 
     def test_priority(self):
@@ -481,9 +480,15 @@ class StrategyRunnerTestCase(unittest.TestCase):
             def on_close(self):
                 ix = self.data.index.get_loc(self.ts)
                 if ix == 0:
-                    self.orders.append(Order(asset_name="ACME", size=100, priority=2))
-                    self.orders.append(Order(asset_name="ACME", size=200, priority=3))
-                    self.orders.append(Order(asset_name="ACME", size=300, priority=1))
+                    self.orders.append(
+                        SimpleOrder(asset_name="ACME", size=100, priority=2)
+                    )
+                    self.orders.append(
+                        SimpleOrder(asset_name="ACME", size=200, priority=3)
+                    )
+                    self.orders.append(
+                        SimpleOrder(asset_name="ACME", size=300, priority=1)
+                    )
 
         data_arr = [
             [105],
@@ -499,18 +504,18 @@ class StrategyRunnerTestCase(unittest.TestCase):
 
         sr = StrategyRunner(
             data=data,
-            assets=[Asset(name="ACME", denom="USD")],
-            strat_classes=[TestPriorityStrat],
+            assets=[OHLCAsset(name="ACME", denom="USD")],
+            strategies=[TestPriorityStrat()],
         )
-        sr.run()
+        srr = sr.run()
 
         self.assertListEqual(
-            sr.transaction_history.quantity.to_list(),
+            srr.transaction_history.quantity.to_list(),
             [Decimal("200.00"), Decimal("100.00"), Decimal("300.00")],
         )
 
     def test_order_key(self):
-        class LimitOrder(Order):
+        class LimitOrder(SimpleOrder):
             # this limit won't be met in test
             def pre_execute_check(self, ts, tp):
                 # if goes above 200 then complete order
@@ -546,16 +551,16 @@ class StrategyRunnerTestCase(unittest.TestCase):
 
         sr = StrategyRunner(
             data=data,
-            assets=[Asset(name="ACME", denom="USD")],
-            strat_classes=[TestOrderkeyStrat],
+            assets=[OHLCAsset(name="ACME", denom="USD")],
+            strategies=[TestOrderkeyStrat()],
         )
-        sr.run()
+        srr = sr.run()
 
         self.assertListEqual(
             [
                 (OrderStatus.REPLACED, "my_key", Decimal("100")),
             ],
-            [(o.status, o.key, o.size) for o in sr.orders_processed],
+            [(o.status, o.key, o.size) for o in srr.orders_processed],
         )
 
         self.assertListEqual(
@@ -563,7 +568,7 @@ class StrategyRunnerTestCase(unittest.TestCase):
                 (OrderStatus.OPEN, None, Decimal("200")),
                 (OrderStatus.OPEN, "my_key", Decimal("300")),
             ],
-            [(o.status, o.key, o.size) for o in sr.orders_unprocessed],
+            [(o.status, o.key, o.size) for o in srr.orders_unprocessed],
         )
 
 

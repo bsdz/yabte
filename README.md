@@ -25,10 +25,10 @@ Below is an example usage (the performance of the example strategy won't be good
 ```python
 import pandas as pd
 
-from yabte.backtest import Strategy, StrategyRunner, Order, Book
-from yabte.utilities.plot.plotly.strategy_runner import plot_strategy_runner
-from yabte.utilities.strategy_helpers import crossover
+from yabte.backtest import Book, SimpleOrder, Strategy, StrategyRunner
 from yabte.tests._helpers import generate_nasdaq_dataset
+from yabte.utilities.plot.plotly.strategy_runner import plot_strategy_runner_result
+from yabte.utilities.strategy_helpers import crossover
 
 
 class SMAXO(Strategy):
@@ -64,9 +64,9 @@ class SMAXO(Strategy):
             data = df.loc[ix_2d, ("CloseSMAShort", "CloseSMALong")].dropna()
             if len(data) == 2:
                 if crossover(data.CloseSMAShort, data.CloseSMALong):
-                    self.orders.append(Order(asset_name=symbol, size=-100))
+                    self.orders.append(SimpleOrder(asset_name=symbol, size=-100))
                 elif crossover(data.CloseSMALong, data.CloseSMAShort):
-                    self.orders.append(Order(asset_name=symbol, size=100))
+                    self.orders.append(SimpleOrder(asset_name=symbol, size=100))
 
 
 # load some data
@@ -79,18 +79,17 @@ book = Book(name="Main", cash="100000")
 sr = StrategyRunner(
     data=df_combined,
     assets=assets,
-    strat_classes=[SMAXO],
+    strategies=[SMAXO()],
     books=[book],
 )
-sr.run()
+srr = sr.run()
 
 # see the trades or book history
-th = sr.transaction_history
-bch = sr.book_history.loc[:, (slice(None), "cash")]
+th = srr.transaction_history
+bch = srr.book_history.loc[:, (slice(None), "cash")]
 
 # plot the trades against book value
-plot_strategy_runner(sr);
-
+plot_strategy_runner_result(srr, sr)
 ```
 
 ![Output from code](https://raw.githubusercontent.com/bsdz/yabte/main/readme_image.png)

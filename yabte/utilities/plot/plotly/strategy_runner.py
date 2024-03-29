@@ -5,10 +5,14 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from ....backtest import StrategyRunner
+from ....backtest import StrategyRunner, StrategyRunnerResult
 
 
-def plot_strategy_runner(sr: StrategyRunner, settings: dict[str, Any] | None = None):
+def plot_strategy_runner_result(
+    srr: StrategyRunnerResult,
+    sr: StrategyRunner,
+    settings: dict[str, Any] | None = None,
+):
     """Display the results of a strategy run using plotly.
 
     Plots a grid of charts with each column representing a book and rows representing
@@ -22,13 +26,13 @@ def plot_strategy_runner(sr: StrategyRunner, settings: dict[str, Any] | None = N
     s = pd.Series(default_settings, dtype=object)
 
     traded_assets = [
-        a for a in sr.assets if a.name in sr.transaction_history.asset_name.unique()
+        a for a in srr.assets if a.name in srr.transaction_history.asset_name.unique()
     ]
 
     dpi = 100
     col_width = 8 * dpi
     row_unit_height = 3 * dpi
-    ncols = len(sr.books)
+    ncols = len(srr.books)
     nrows = 1 + len(traded_assets)
 
     subplot_titles = [a.name for a in (traded_assets)] + ["Book Value"]
@@ -46,9 +50,9 @@ def plot_strategy_runner(sr: StrategyRunner, settings: dict[str, Any] | None = N
         vertical_spacing=0.05,
     )
 
-    for col, book in enumerate(sr.books, start=1):
+    for col, book in enumerate(srr.books, start=1):
         for row, asset in enumerate(traded_assets, start=1):
-            prices = sr.data[asset.data_label]
+            prices = asset._filter_data(sr.data)
 
             fig.add_trace(
                 go.Candlestick(
@@ -97,13 +101,13 @@ def plot_strategy_runner(sr: StrategyRunner, settings: dict[str, Any] | None = N
                 col=col,
             )
 
-            trans_hist = sr.transaction_history.query(
+            trans_hist = srr.transaction_history.query(
                 "asset_name==@asset.name and book==@book.name"
             )
             pos_hist = (
                 trans_hist.groupby("ts")
                 .agg(
-                    quantity=("quantity", np.sum),
+                    quantity=("quantity", "sum"),
                     labels=(
                         "order_label",
                         lambda L: " ".join(l for l in L if l is not None),
@@ -151,7 +155,7 @@ def plot_strategy_runner(sr: StrategyRunner, settings: dict[str, Any] | None = N
             )
 
     row = nrows
-    bh = sr.book_history.loc[:, book.name]
+    bh = srr.book_history.loc[:, book.name]
     fig.add_trace(
         go.Scatter(
             x=bh.index,

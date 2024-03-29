@@ -87,8 +87,8 @@ class Book:
         return True
 
     def add_transactions(self, transactions: Sequence[Transaction]):
-        """Records the `transactions` and adjusts internal dictionary of
-        positions and value of cash accordingly."""
+        """Records the `transactions` and adjusts internal dictionary of positions and
+        value of cash accordingly."""
         for tran in transactions:
             if isinstance(tran, Trade):
                 self.positions[tran.asset_name] += tran.quantity
@@ -101,7 +101,7 @@ class Book:
             self.transactions.append(tran)
 
     def eod_tasks(
-        self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
+        self, ts: pd.Timestamp, day_data: pd.Series, asset_map: Dict[str, Asset]
     ):
         """Run end of day tasks such as book keeping."""
         # accumulate continously compounded interest
@@ -117,8 +117,11 @@ class Book:
                 ]
             )
         cash = float(self.cash)
-        mtm = sum(
-            day_data[asset_map[an].data_label].Close * float(q)
-            for an, q in self.positions.items()
+        mtm = float(
+            sum(
+                asset.end_of_day_price(asset._filter_data(day_data)) * q
+                for an, q in self.positions.items()
+                if (asset := asset_map.get(an))
+            )
         )
         self._history.append([ts, cash, mtm, cash + mtm])

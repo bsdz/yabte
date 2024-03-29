@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter, deque
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
 from mypy_extensions import mypyc_attr
@@ -16,7 +17,7 @@ from .transaction import Trade
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["Order", "PositionalOrder", "BasketOrder", "PositionalBasketOrder"]
+__all__ = ["SimpleOrder", "PositionalOrder", "BasketOrder", "PositionalBasketOrder"]
 
 
 class OrderStatus(Enum):
@@ -53,7 +54,7 @@ class OrderSizeType(Enum):
 
 @mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
-class OrderBase:
+class Order:
     """Base class for all orders."""
 
     status: OrderStatus = OrderStatus.OPEN
@@ -62,7 +63,7 @@ class OrderBase:
     book: BookName | Book | None = field(repr=False, default=None)
     """Target book."""
 
-    suborders: List[OrderBase] = field(default_factory=list)
+    suborders: List[Order] = field(default_factory=list)
     """Additional orders to be executed the following timestep."""
 
     label: Optional[str] = None
@@ -98,17 +99,65 @@ class OrderBase:
         """
         pass
 
-    def apply(
-        self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
-    ):
-        """Applies order to `self.book` for time `ts` using provided `day_data`
-        and dictionary of asset information `asset_map`."""
+    def apply(self, ts: pd.Timestamp, day_data: pd.Series, asset_map: Dict[str, Asset]):
+        """Applies order to `self.book` for time `ts` using provided `day_data` and
+        dictionary of asset information `asset_map`."""
         raise NotImplementedError("The apply methods needs to be implemented.")
+
+
+class Orders:
+    """Double ended queue of orders."""
+
+    def __init__(self):
+        self.deque = deque()
+
+    def __len__(self):
+        return len(self.deque)
+
+    def __iter__(self):
+        return iter(self.deque)
+
+    def popleft(self):
+        return self.deque.popleft()
+
+    def append(self, order: Order):
+        return self.deque.append(order)
+
+    def extend(self, orders: Iterable[Order]):
+        return self.deque.extend(orders)
+
+    def sort_by_priority(self):
+        """Sorts orders by order priority."""
+        ou_sorted = sorted(self.deque, key=lambda o: o.priority, reverse=True)
+        self.deque.clear()
+        self.deque.extend(ou_sorted)
+
+    def remove_duplicate_keys(self) -> List[Order]:
+        """Remove older orders with same key.
+
+        Returns a list of orders than were removed with status set to REPLACED.
+        """
+        removed = []
+        cntr = Counter(o.key for o in self.deque if o.key is not None)
+        if any(v > 1 for v in cntr.values()):
+            kept = []
+            while self.deque:
+                o = self.deque.popleft()
+                if o.key in cntr and cntr[o.key] > 1:
+                    o.status = OrderStatus.REPLACED
+                    removed.append(o)
+                    cntr[o.key] -= 1
+                else:
+                    kept.append(o)
+            self.deque.clear()
+            self.deque.extend(kept)
+
+        return removed
 
 
 @mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
-class Order(OrderBase):
+class SimpleOrder(Order):
     """Simple market order."""
 
     asset_name: AssetName
@@ -128,10 +177,12 @@ class Order(OrderBase):
         self.size = ensure_decimal(self.size)
         self.size_type = ensure_enum(self.size_type, OrderSizeType)
 
-    def _calc_quantity_price(self, day_data, asset_map) -> Tuple[Decimal, Decimal]:
+    def _calc_quantity_price(
+        self, day_data: pd.Series, asset_map: Dict[str, Asset]
+    ) -> Tuple[Decimal, Decimal]:
         asset = asset_map[self.asset_name]
-        asset_day_data = day_data[asset.data_label]
-        trade_price = asset.intraday_traded_price(asset_day_data)
+        asset_day_data = asset._filter_data(day_data)
+        trade_price = asset.intraday_traded_price(asset_day_data, size=self.size)
 
         if self.size_type == OrderSizeType.QUANTITY:
             quantity = self.size
@@ -159,9 +210,7 @@ class Order(OrderBase):
         """
         return None
 
-    def apply(
-        self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
-    ):
+    def apply(self, ts: pd.Timestamp, day_data: pd.Series, asset_map: Dict[str, Asset]):
         if not self.book or not isinstance(self.book, Book):
             raise RuntimeError("Cannot apply order without book instance")
 
@@ -191,9 +240,9 @@ class PositionalOrderCheckType(Enum):
 
 @mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
-class PositionalOrder(Order):
-    """Ensures current position is `size` and will close out existing positions
-    to achieve this."""
+class PositionalOrder(SimpleOrder):
+    """Ensures current position is `size` and will close out existing positions to
+    achieve this."""
 
     check_type: PositionalOrderCheckType = PositionalOrderCheckType.POS_TQ_DIFFER
     """Condition type to determine if a trade is required."""
@@ -202,9 +251,7 @@ class PositionalOrder(Order):
         super().__post_init__()
         self.check_type = ensure_enum(self.check_type, PositionalOrderCheckType)
 
-    def apply(
-        self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
-    ):
+    def apply(self, ts: pd.Timestamp, day_data: pd.Series, asset_map: Dict[str, Asset]):
         if not self.book or not isinstance(self.book, Book):
             raise RuntimeError("Cannot apply order without book instance")
 
@@ -253,7 +300,7 @@ class PositionalOrder(Order):
 
 @mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass
-class BasketOrder(OrderBase):
+class BasketOrder(Order):
     """Combine multiple assets into a single order."""
 
     asset_names: List[AssetName]
@@ -275,12 +322,12 @@ class BasketOrder(OrderBase):
         self.size_type = ensure_enum(self.size_type, OrderSizeType)
 
     def _calc_quantity_price(
-        self, day_data, asset_map
+        self, day_data: pd.Series, asset_map: Dict[str, Asset]
     ) -> List[Tuple[Decimal, Decimal]]:
         assets = [asset_map[an] for an in self.asset_names]
-        assets_day_data = [day_data[a.data_label] for a in assets]
+        assets_day_data = [a._filter_data(day_data) for a in assets]
         trade_prices = [
-            asset.intraday_traded_price(add)
+            asset.intraday_traded_price(add, size=self.size)
             for asset, add in zip(assets, assets_day_data)
         ]
 
@@ -313,9 +360,7 @@ class BasketOrder(OrderBase):
             for a, q, tp in zip(assets, quantities, trade_prices)
         ]
 
-    def apply(
-        self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
-    ):
+    def apply(self, ts: pd.Timestamp, day_data: pd.Series, asset_map: Dict[str, Asset]):
         if not self.book or not isinstance(self.book, Book):
             raise RuntimeError("Cannot apply order without book instance")
 
@@ -338,14 +383,12 @@ class BasketOrder(OrderBase):
 @mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class PositionalBasketOrder(BasketOrder):
-    """Similar to a :py:class:`BasketOrder` but will close out existing
-    positions if they do not match requested weights."""
+    """Similar to a :py:class:`BasketOrder` but will close out existing positions if
+    they do not match requested weights."""
 
     check_type: PositionalOrderCheckType = PositionalOrderCheckType.POS_TQ_DIFFER
 
-    def apply(
-        self, ts: pd.Timestamp, day_data: pd.DataFrame, asset_map: Dict[str, Asset]
-    ):
+    def apply(self, ts: pd.Timestamp, day_data: pd.Series, asset_map: Dict[str, Asset]):
         if not self.book or not isinstance(self.book, Book):
             raise RuntimeError("Cannot apply order without book instance")
 

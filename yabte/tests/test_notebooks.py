@@ -20,4 +20,7 @@ class NotebooksTestCase(unittest.TestCase):
                     with nb.open() as f:
                         nb = nbformat.read(f, as_version=4)
                         # will raise exception if issue, eg missing module
-                        ep.preprocess(nb, {"metadata": {"path": str(notebooks_dir)}})
+                        nb_node, resources = ep.preprocess(
+                            nb, {"metadata": {"path": str(notebooks_dir)}}
+                        )
+                        foo = 1

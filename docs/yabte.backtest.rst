@@ -9,7 +9,7 @@ Strategy
       :members:
       :member-order: bysource
 
-Order
+SimpleOrder
 -----
    .. autoclass:: yabte.backtest.order.OrderStatus
       :members:
@@ -39,7 +39,7 @@ Book
       :members:
       :member-order: bysource
 
-Asset
+OHLCAsset
 -----
 
    .. automodule:: yabte.backtest.asset

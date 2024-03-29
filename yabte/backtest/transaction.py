@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -8,7 +11,8 @@ import pandas as pd
 # (https://github.com/mypyc/mypyc/issues/1000)
 from pandas import Timestamp  # type: ignore
 
-from .asset import AssetName
+if TYPE_CHECKING:
+    from .asset import AssetName
 
 logger = logging.getLogger(__name__)
 

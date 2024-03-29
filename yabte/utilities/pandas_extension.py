@@ -33,7 +33,7 @@ class PriceAccessor:
 
     @property
     def returns(self):
-        return self._obj.pct_change()[1:]
+        return self._obj.pct_change(fill_method=None)[1:]
 
     @property
     def frequency(self):

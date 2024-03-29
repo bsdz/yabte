@@ -28,7 +28,7 @@ A typical strategy looks as follows:
 
 .. code-block:: python
 
-   from yabte.backtest import Strategy, StrategyRunner, Order, Book, Asset
+   from yabte.backtest import Strategy, StrategyRunner, SimpleOrder, Book, OHLCAsset
    from yabte.utilities.strategy_helpers import crossover
 
    # All strategies inherit from the Strategy base class.
@@ -80,19 +80,19 @@ A typical strategy looks as follows:
                      # executed the next day. There are different types
                      # of order, e.g. positional and basket and some orders
                      # support hooks for running arbitrary checks for limits etc.
-                     self.orders.append(Order(asset_name=symbol, size=-100))
+                     self.orders.append(SimpleOrder(asset_name=symbol, size=-100))
                   elif crossover(data.CloseSMALong, data.CloseSMAShort):
-                     self.orders.append(Order(asset_name=symbol, size=100))
+                     self.orders.append(SimpleOrder(asset_name=symbol, size=100))
 
 
 To run our strategy, we use a StrategyRunner:
 
 .. code-block:: python
 
-   # The Asset class is any pricable object with accompanying High, Low, Close,
-   # Open & Volume field data. One can subclass Asset to support different field
+   # The OHLCAsset class is any pricable object with accompanying High, Low, Close,
+   # Open & Volume field data. One can subclass OHLCAsset to support different field
    # types, e.g. Volatility.
-   assets = [Asset(name="GOOG", denom="USD"), Asset(name="MSFT", denom="USD")]
+   assets = [OHLCAsset(name="GOOG", denom="USD"), OHLCAsset(name="MSFT", denom="USD")]
 
    sr = StrategyRunner(
       # Data is provided as a pandas dataframe with two level

@@ -6,11 +6,15 @@ import pandas as pd
 from matplotlib.dates import DateFormatter
 from matplotlib.ticker import FuncFormatter
 
-from ....backtest import StrategyRunner
+from ....backtest import StrategyRunner, StrategyRunnerResult
 from .marker_updater import MarkerUpdater
 
 
-def plot_strategy_runner(sr: StrategyRunner, settings: dict[str, Any] | None = None):
+def plot_strategy_runner_result(
+    srr: StrategyRunnerResult,
+    sr: StrategyRunner,
+    settings: dict[str, Any] | None = None,
+):
     """Display the results of a strategy run using matplotlib.
 
     Plots a grid of charts with each column representing a book and rows representing
@@ -32,12 +36,12 @@ def plot_strategy_runner(sr: StrategyRunner, settings: dict[str, Any] | None = N
     s = pd.Series(default_settings, dtype=object)
 
     traded_assets = [
-        a for a in sr.assets if a.name in sr.transaction_history.asset_name.unique()
+        a for a in srr.assets if a.name in srr.transaction_history.asset_name.unique()
     ]
 
     col_width = 8
     row_unit_height = 3
-    ncols = len(sr.books)
+    ncols = len(srr.books)
     nrows = 1 + 2 * len(traded_assets)
     hr = [3, 1] * len(traded_assets) + [2]
     fig, axss = plt.subplots(
@@ -53,9 +57,9 @@ def plot_strategy_runner(sr: StrategyRunner, settings: dict[str, Any] | None = N
     marker_updater = MarkerUpdater()
     date_formatter = DateFormatter(s.date_format)
 
-    for book, axs in zip(sr.books, axss.T):
+    for book, axs in zip(srr.books, axss.T):
         for i, asset in enumerate(traded_assets):
-            prices = sr.data[asset.data_label]
+            prices = asset._filter_data(sr.data)
 
             up = prices[prices.Close >= prices.Open]
             down = prices[prices.Close < prices.Open]
@@ -111,7 +115,7 @@ def plot_strategy_runner(sr: StrategyRunner, settings: dict[str, Any] | None = N
 
             vax = axs[2 * i + 1]
             vax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x/1000:,.0f}"))
-            vax.set_ylabel(f"Volume (thousands)")
+            vax.set_ylabel("Volume (thousands)")
             vax.fmt_xdata = date_formatter
 
             vax.bar(
@@ -120,7 +124,7 @@ def plot_strategy_runner(sr: StrategyRunner, settings: dict[str, Any] | None = N
                 color="black",
             )
 
-            trans_hist = sr.transaction_history.query(
+            trans_hist = srr.transaction_history.query(
                 "asset_name==@asset.name and book==@book.name"
             )
             pos_hist = (
@@ -165,7 +169,7 @@ def plot_strategy_runner(sr: StrategyRunner, settings: dict[str, Any] | None = N
         bax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x/1000:,.0f}"))
         bax.set_ylabel(f"{book.denom} (thousands)")
 
-        sr.book_history.loc[:, book.name].total.plot(ax=bax)
+        srr.book_history.loc[:, book.name].total.plot(ax=bax)
         bax.set_xlabel("Date")
         bax.fmt_xdata = date_formatter
 
