@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "yabte"
-version = "0.3.6"
+version = "0.4.0"
 description = "Yet another backtesting engine"
 authors = ["Blair Azzopardi <blairuk@gmail.com>"]
 license = "MIT"
@@ -12,7 +12,7 @@ script = "build.py"
 generate-setup-file = true
 
 [tool.poetry.dependencies]
-python = "^3.10,<3.12"
+python = "^3.10,<3.13"
 pandas = ">1.5,<3"
 scipy = "^1.10.0"
 pandas-stubs = "^2.1.4.231227"
@@ -27,6 +27,7 @@ black = {extras = ["jupyter"], version = "^23.1.0"}
 docformatter = "^1.5.1"
 coverage = "^7.2.1"
 setuptools = "^69.0.3"
+pytest = "^8.0.0"
 
 [tool.poetry.group.docs]
 optional = true

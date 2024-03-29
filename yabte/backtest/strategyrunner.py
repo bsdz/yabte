@@ -55,7 +55,6 @@ def _check_data(df, asset_map):
 
 @dataclass(kw_only=True)
 class StrategyRunnerResult:
-
     books: List[Book]
     """Books used within this result."""
 
