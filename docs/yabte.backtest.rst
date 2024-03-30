@@ -6,27 +6,29 @@ Strategy
 --------
 
    .. automodule:: yabte.backtest.strategy
+      :show-inheritance:
+      :ignore-module-all:
       :members:
       :member-order: bysource
+      :inherited-members:
+
 
 StrategyRunner
 --------------
 
    .. automodule:: yabte.backtest.strategyrunner
+      :show-inheritance:
+      :ignore-module-all:
       :members:
       :member-order: bysource
+      :inherited-members:
+
 
 Order
 -----
-   .. autoclass:: yabte.backtest.order.OrderStatus
-      :members:
-      :member-order: bysource
-
-   .. autoclass:: yabte.backtest.order.OrderSizeType
-      :members:
-      :member-order: bysource
-
    .. automodule:: yabte.backtest.order
+      :show-inheritance:
+      :ignore-module-all:
       :members:
       :member-order: bysource
       :inherited-members:
@@ -35,20 +37,30 @@ Transaction
 -----------
 
    .. automodule:: yabte.backtest.transaction
+      :show-inheritance:
+      :ignore-module-all:
       :members:
       :member-order: bysource
       :inherited-members:
+
 
 Book
 ----
 
    .. automodule:: yabte.backtest.book
+      :show-inheritance:
+      :ignore-module-all:
       :members:
       :member-order: bysource
+      :inherited-members:
+
 
 Asset
 -----
 
    .. automodule:: yabte.backtest.asset
+      :show-inheritance:
+      :ignore-module-all:
       :members:
       :member-order: bysource
+      :inherited-members:
