@@ -5,6 +5,7 @@ from decimal import Decimal
 import numpy as np
 import pandas as pd
 
+import yabte.utilities.pandas_extension
 from yabte.backtest import (
     BasketOrder,
     Book,
@@ -570,6 +571,34 @@ class StrategyRunnerTestCase(unittest.TestCase):
             ],
             [(o.status, o.key, o.size) for o in srr.orders_unprocessed],
         )
+
+    def test_run_batch(self):
+
+        book = Book(name="Main", cash=Decimal("100000"))
+
+        sr = StrategyRunner(
+            data=self.df_combined,
+            assets=self.assets,
+            strategies=[TestSMAXOStrat()],
+            books=[book],
+        )
+
+        param_iter = [
+            {"days_long": n, "days_short": m}
+            for n, m in zip([20, 30, 40, 50], [5, 10, 15, 20])
+            if n > m
+        ]
+
+        srrs = sr.run_batch(param_iter)
+
+        self.assertEqual(len(srrs), len(param_iter))
+
+        # check we have distinct sharpe ratios for each param set
+        sharpes = {
+            srr.book_history.loc[:, ("Main", "total")].prc.sharpe_ratio()
+            for srr in srrs
+        }
+        self.assertEqual(len(sharpes), len(param_iter))
 
 
 if __name__ == "__main__":
