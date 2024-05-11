@@ -573,7 +573,6 @@ class StrategyRunnerTestCase(unittest.TestCase):
         )
 
     def test_run_batch(self):
-
         book = Book(name="Main", cash=Decimal("100000"))
 
         sr = StrategyRunner(
