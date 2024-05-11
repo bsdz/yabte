@@ -13,10 +13,10 @@ class ScaleAccessor:
 
 
 @pd.api.extensions.register_dataframe_accessor("prc")
+@pd.api.extensions.register_series_accessor("prc")
 class PriceAccessor:
     # TODO: add ledoit cov (via sklearn)
     # http://www.ledoit.net/honey.pdf
-    # TODO: add Sharpe ratio
 
     def __init__(self, pandas_obj):
         self._validate(pandas_obj)
@@ -24,11 +24,12 @@ class PriceAccessor:
 
     @staticmethod
     def _validate(obj):
-        if (obj < 0).any(axis=None):
-            raise AttributeError("Prices must be non-negative")
+        pass
 
     @property
     def log_returns(self):
+        if (self._obj < 0).any(axis=None):
+            raise AttributeError("Prices must be non-negative for log returns")
         return np.log((self._obj / self._obj.shift())[1:])
 
     @property
@@ -42,6 +43,8 @@ class PriceAccessor:
             return 252
         elif days == 7:
             return 52
+        elif 28 <= days <= 31:
+            return 12
 
     def capm_returns(self, risk_free_rate=0):
         returns = self.returns
@@ -55,6 +58,11 @@ class PriceAccessor:
             risk_free_rate
             + betas * (returns_mkt.mean() * self.frequency - risk_free_rate)
         ).rename("CAPM")
+
+    def sharpe_ratio(self, risk_free_rate=0, use_log_returns=True):
+        ann_factor = np.sqrt(self.frequency)
+        returns = self.log_returns if use_log_returns else self.returns
+        return ann_factor * (returns.mean() - risk_free_rate) / returns.std()
 
     def null_blips(self, sd=5, sdd=7):
         df = self._obj

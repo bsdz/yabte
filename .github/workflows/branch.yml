@@ -28,7 +28,7 @@ jobs:
         run: poetry install --with dev
       - if: ${{ matrix.use-mypyc }}
         name: Build mypyc modules
-        run: poetry run python build.py --inplace
+        run: poetry run python build_mypyc.py --inplace
       - name: Run tests with coverage
         run: poetry run coverage run -m unittest
       - name: Show coverage report

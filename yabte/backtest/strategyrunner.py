@@ -1,7 +1,9 @@
+import concurrent.futures
 import logging
+from concurrent.futures import ProcessPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 import pandas as pd
 
@@ -219,3 +221,14 @@ class StrategyRunner:
                 book.eod_tasks(ts, day_data, asset_map)
 
         return srr
+
+    def run_batch(
+        self,
+        params_iterable: Iterable[Dict[str, Any]],
+        executor: ProcessPoolExecutor | None = None,
+    ) -> List[StrategyRunnerResult]:
+        """Run a set of parameter combinations."""
+
+        executor = executor or concurrent.futures.ThreadPoolExecutor()
+        with executor:
+            return list(executor.map(self.run, params_iterable))

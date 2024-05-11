@@ -2,11 +2,17 @@
 
 Python module for backtesting trading strategies.
 
-Support event driven backtesting, ie `on_open`, `on_close`, etc. Also supports multiple assets.
+Features
 
-Very basic statistics like book cash, mtm and total value. Currently, everything else needs to be deferred to a 3rd party module like `empyrical`.
+* Event driven, ie `on_open`, `on_close`, etc. 
+* Multiple assets.
+* OHLC Asset. Extendable (e.g support additional fields, e.g. Volatility, or entirely different fields, e.g. Barrels per day).
+* Multiple books.
+* Positional and Basket orders. Extendible (e.g. can support stop loss).
+* Batch runs (for optimization).
+* Captures book history including transactions & daily cash, MtM and total values.
 
-There are some basic tests but use at your own peril. It's not production level code.
+The module provides basic statistics like book cash, mtm and total value. Currently, everything else needs to be deferred to a 3rd party module like `empyrical`.
 
 ## Core dependencies
 
@@ -20,7 +26,7 @@ pip install yatbe
 
 ## Usage
 
-Below is an example usage (the performance of the example strategy won't be good).
+Below is an example usage (the economic performance of the example strategy won't be good).
 
 ```python
 import pandas as pd
