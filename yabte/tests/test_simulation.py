@@ -117,6 +117,34 @@ class SimulationTestCase(NumpyTestCase):
             ksr = stats.kstest(dws[:, m, k], "norm", args=(0, 1))
             self.assertGreater(ksr.pvalue, 0.01)
 
+    def test_gbm_1d_moments(self):
+        r = 0.05
+        R = 1
+        sigma = 0.2
+        N = 1000
+        T = 1
+        M = 10000
+        S0 = 50
+
+        # simulate data
+        # p[steps, sims, path]
+        p = gbm_simulate_paths(
+            S0=S0, mu=r, sigma=sigma, R=R, T=T, n_steps=N, n_sims=M, rng=self.rng
+        )
+
+        # analytical moments
+        E_S_T = S0 * np.exp(r * T)
+        Var_S_T = S0**2 * np.exp(2 * r * T) * (np.exp(sigma**2 * T) - 1)
+
+        # empirical moments
+        S_T = p[-1, :, 0]
+        E_S_T_emp = np.mean(S_T)
+        Var_S_T_emp = np.var(S_T)
+
+        # TODO: need statistcal test to check if E_S_T and Var_S_T are close to
+        # E_S_T_emp and Var_S_T_emp
+        x = 1
+
     def test_heston_smoke(self):
         kappa = 4
         theta = 0.02
