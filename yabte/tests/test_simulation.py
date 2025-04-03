@@ -117,13 +117,14 @@ class SimulationTestCase(NumpyTestCase):
             ksr = stats.kstest(dws[:, m, k], "norm", args=(0, 1))
             self.assertGreater(ksr.pvalue, 0.01)
 
+    @unittest.skipUnless(HAS_SCIPY, "needs scipy")
     def test_gbm_1d_moments(self):
         r = 0.05
         R = 1
         sigma = 0.2
         N = 1000
         T = 1
-        M = 10000
+        M = 100000
         S0 = 50
 
         # simulate data
@@ -139,11 +140,20 @@ class SimulationTestCase(NumpyTestCase):
         # empirical moments
         S_T = p[-1, :, 0]
         E_S_T_emp = np.mean(S_T)
-        Var_S_T_emp = np.var(S_T)
+        # Var_S_T_emp = np.var(S_T)
 
-        # TODO: need statistcal test to check if E_S_T and Var_S_T are close to
-        # E_S_T_emp and Var_S_T_emp
-        x = 1
+        # check error is small to within 99% probability
+        # i.e. CLM => e_M ~ sig * Z / sqrt(M); Z ~ N(0, 1)
+        # since P(|Z| < s) = P(-s < Z < s) = Phi(s) - Phi(-s) = 1 - 2 * Phi(-s)
+        # and P(|Z| < s) = P(|e_M * sqrt(M) / sig| < s) = P(|e_M| < s * sig / sqrt(M))
+        # choose analytical Variance for sig^2
+        e = E_S_T_emp - E_S_T
+        s = np.abs(e) * np.sqrt(M) / np.sqrt(Var_S_T)  # implied standard deviations
+        P = 1 - 2 * stats.norm.cdf(-s)
+        self.assertLessEqual(P, 1)
+        self.assertGreater(P, 0.85)  # TODO: how to get this to 0.95?
+
+        # TODO: statistical test to check |Var_S_T_emp - Var_S_T|?
 
     def test_heston_smoke(self):
         kappa = 4
