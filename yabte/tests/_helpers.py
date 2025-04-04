@@ -24,15 +24,42 @@ def generate_nasdaq_dataset():
     return assets, pd.concat(dfs, axis=1)
 
 
-def generate_ohlc_dataset(
-    mu: float,
-    T: float,
-    n_steps: int,
+def generate_gbm_dataset(
     S0: list[float],
+    mu: float,
+    vol: list[float],
+    names: list[str],
+    index: pd.DatetimeIndex,
+    R: np.ndarray | None = None,
+    rng=None,
+):
+    # NOTE: vol is already in annualized form
+    if R is None:
+        R = np.identity(len(names))
+
+    vol = np.array(vol)
+    S0 = np.array(S0)
+
+    n_steps = len(index)
+    T = (index.max() - index.min()).days / 365
+    p = gbm_simulate_paths(
+        S0=S0, mu=mu, sigma=vol, R=R, T=T, n_steps=n_steps, n_sims=1, rng=rng
+    )
+
+    df = pd.DataFrame(p[:, 0, :], index=index, columns=names)
+
+    return df
+
+
+def generate_ohlc_dataset(
+    S0: list[float],
+    mu: float,
     vol: list[float],
     names: list[str],
     start,
+    end,
     freq,
+    tick_freq="1min",
     R: np.ndarray | None = None,
     rng=None,
 ):
@@ -42,14 +69,17 @@ def generate_ohlc_dataset(
     vol = np.array(vol)
     S0 = np.array(S0)
 
-    p = gbm_simulate_paths(
-        S0=S0, mu=mu, sigma=vol, R=R, T=T, n_steps=n_steps, n_sims=1, rng=rng
+    tick_index = pd.date_range(start, end, freq=tick_freq)
+    df = generate_gbm_dataset(
+        S0=S0,
+        mu=mu,
+        vol=vol,
+        names=names,
+        index=tick_index,
+        rng=rng,
     )
 
-    ix = pd.date_range(start, freq=freq, periods=n_steps)
-    df = pd.DataFrame(p[:, 0, :], index=ix, columns=names)
-
-    ohlc_df = df.resample("D").ohlc()
+    ohlc_df = df.resample(freq).ohlc()
 
     assets = [OHLCAsset(name=n, denom="USD") for n in names]
 
@@ -59,18 +89,25 @@ def generate_ohlc_dataset(
 
 
 if __name__ == "__main__":
-    # 20 days in 30 min samples; 1 day = 48 x 30 min
-    # T/N = 20/365 / 20 / 48 = 1/365/48
 
-    data = generate_ohlc_dataset(
-        mu=0.05,
-        T=20 / 365,
-        n_steps=20 * 48,
+    data = generate_gbm_dataset(
         S0=[10, 100, 1000, 50],
+        mu=0.05,
         vol=[0.2, 0.3, 0.1, 0.4],
         names=["A1 Inc", "B2 Corp", "C3 Ltd", "D4 Inc"],
-        start=datetime(2025, 1, 1, 0, 0),
+        index=pd.date_range(datetime(2025, 1, 1), periods=20 * 48, freq="30min"),
+        rng=np.random.default_rng(12345),
+    )
+
+    assets, data = generate_ohlc_dataset(
+        S0=[10, 100, 1000, 50],
+        mu=0.05,
+        vol=[0.2, 0.3, 0.1, 0.4],
+        names=["A1 Inc", "B2 Corp", "C3 Ltd", "D4 Inc"],
+        start=datetime(2025, 1, 1),
+        end=datetime(2025, 3, 1),
         freq="30min",
+        tick_freq="1min",
         rng=np.random.default_rng(12345),
     )
 
