@@ -5,6 +5,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional
 
+import numpy as np
 import pandas as pd
 
 # TODO: use explicit imports until mypyc fixes attribute lookups in dataclass
@@ -153,6 +154,7 @@ class StrategyRunner:
 
         # calendar
         calendar = self.data.index
+        eod_calendar = pd.Series(calendar, calendar.date).groupby(level=0).max().values
 
         for strat in srr.strategies:
             strat.params = params
@@ -167,7 +169,7 @@ class StrategyRunner:
 
         # run event loop
         for ts in calendar:
-            logger.info(f"Processing timestep {ts}")
+            logger.debug(f"Processing timestep {ts}")
 
             # open
             for strat in srr.strategies:
@@ -217,8 +219,9 @@ class StrategyRunner:
                 strat.on_close()
 
             # run book end-of-day tasks
-            for book in srr.books:
-                book.eod_tasks(ts, day_data, asset_map)
+            if np.isin(ts.to_numpy(), eod_calendar):
+                for book in srr.books:
+                    book.eod_tasks(ts, day_data, asset_map)
 
         return srr
 

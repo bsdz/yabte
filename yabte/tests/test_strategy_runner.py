@@ -1,5 +1,6 @@
 import logging
 import unittest
+from datetime import datetime
 from decimal import Decimal
 
 import numpy as np
@@ -18,7 +19,7 @@ from yabte.backtest import (
     Strategy,
     StrategyRunner,
 )
-from yabte.tests._helpers import generate_nasdaq_dataset
+from yabte.tests._helpers import generate_nasdaq_dataset, generate_ohlc_dataset
 from yabte.utilities.strategy_helpers import crossover
 
 logger = logging.getLogger(__name__)
@@ -598,6 +599,66 @@ class StrategyRunnerTestCase(unittest.TestCase):
             for srr in srrs
         }
         self.assertEqual(len(sharpes), len(param_iter))
+
+    def test_intraday(self):
+
+        class TestSMAXOStratIntraday(Strategy):
+            def init(self):
+                p = self.params
+                days_short = p.get("days_short", 10)
+                days_long = p.get("days_long", 20)
+
+                close_sma_short = (
+                    self.data.loc[:, (slice(None), "Close")]
+                    .rolling(days_short)
+                    .mean()
+                    .rename({"Close": "CloseSMAShort"}, axis=1, level=1)
+                )
+                close_sma_long = (
+                    self.data.loc[:, (slice(None), "Close")]
+                    .rolling(days_long)
+                    .mean()
+                    .rename({"Close": "CloseSMALong"}, axis=1, level=1)
+                )
+                self.data = pd.concat(
+                    [self.data, close_sma_short, close_sma_long], axis=1
+                ).sort_index(axis=1)
+
+            def on_close(self):
+                p = self.params
+                symbol = p.get("symbol", "A1 Inc")
+
+                df = self.data[symbol]
+                ix_2d = df.index[-2:]
+                data = df.loc[ix_2d, ("CloseSMAShort", "CloseSMALong")].dropna()
+                if len(data) == 2:
+                    if crossover(data.CloseSMAShort, data.CloseSMALong):
+                        self.orders.append(SimpleOrder(asset_name=symbol, size=100))
+                    elif crossover(data.CloseSMALong, data.CloseSMAShort):
+                        self.orders.append(SimpleOrder(asset_name=symbol, size=-100))
+
+        assets, data = generate_ohlc_dataset(
+            S0=[10, 100, 1000, 50],
+            mu=0.05,
+            vol=[0.2, 0.3, 0.1, 0.4],
+            names=["A1 Inc", "B2 Corp", "C3 Ltd", "D4 Inc"],
+            start=datetime(2025, 1, 1),
+            end=datetime(2025, 3, 1),
+            freq="30min",
+            tick_freq="1min",
+            rng=np.random.default_rng(12345),
+        )
+
+        book = Book(name="Main", cash=Decimal("100000"))
+
+        sr = StrategyRunner(
+            data=data,
+            assets=assets,
+            strategies=[TestSMAXOStratIntraday()],
+        )
+        srr = sr.run()
+
+        # TODO: include some checks on EOD vs intraday
 
 
 if __name__ == "__main__":
