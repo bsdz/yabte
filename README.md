@@ -18,6 +18,12 @@ The module provides basic statistics like book cash, mtm and total value. Curren
 
 The core module uses pandas and scipy.
 
+## License
+
+This library is licensed under the Creative Commons Attribution-NonCommercial 4.0 International Public
+License and is intended for personal use only. It cannot be used in a Bank, Hedgefund, Commodity House etc 
+without prior permission from author (Blair Azzopardi).
+
 ## Installation
 
 ```bash
@@ -114,7 +120,11 @@ Documentation can be found on [Read the Docs](https://yabte.readthedocs.io/en/la
 Before commit run following format commands in project folder:
 
 ```bash
-poetry run black .
-poetry run isort . --profile black
-poetry run docformatter . --recursive --in-place --black --exclude _unittest_numpy_extensions.py
+nox --session do-lint
+```
+
+### Build C++
+
+```bash
+nox --session build-cpp
 ```
