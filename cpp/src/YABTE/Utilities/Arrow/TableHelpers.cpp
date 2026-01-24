@@ -22,7 +22,16 @@ Result<shared_ptr<Table>> LoadTable(string path) {
 
     // Open Parquet file reader
     std::unique_ptr<parquet::arrow::FileReader> arrow_reader;
+    
+#ifdef YABTE_USE_PYARROW_API
+    // PyArrow's C++ API (via wheel) sometimes has slightly different signatures or returns Result
+    // In this environment (pyarrow wheel headers), OpenFile returns Result<unique_ptr>
+    ARROW_ASSIGN_OR_RAISE(arrow_reader, parquet::arrow::OpenFile(input, pool));
+#else
+    // Standard Conan Arrow API (used by yabte_objs/yabte_lib_static)
+    // OpenFile returns Status and takes out-pointer
     ARROW_RETURN_NOT_OK(parquet::arrow::OpenFile(input, pool, &arrow_reader));
+#endif
 
     // Read entire file as a single Arrow table
     shared_ptr<Table> table;

@@ -6,9 +6,8 @@ from ..backtest import StrategyRunnerResult
 def extract_rets_pos_txn_from_yabte(
     srr: StrategyRunnerResult,
 ) -> tuple[pd.Series, pd.DataFrame, pd.DataFrame]:
-    """
-    Extract returns, positions, transactions and leverage from the
-    backtest data structure returned by yabte.backtest.StrategyRunner.run().
+    """Extract returns, positions, transactions and leverage from the backtest data
+    structure returned by yabte.backtest.StrategyRunner.run().
 
     The returned data structures are in a format compatible with the
     rest of pyfolio and can be directly passed to

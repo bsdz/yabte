@@ -9,7 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(Arrow REQUIRED)
 find_package(glog REQUIRED)
-find_package(Python 3.12 COMPONENTS Interpreter Development REQUIRED)
+find_package(Python COMPONENTS Interpreter Development REQUIRED)
 find_package(pybind11 CONFIG REQUIRED)
 find_package(bshoshany-thread-pool REQUIRED)
 
@@ -30,6 +30,7 @@ add_library(
   ${CMAKE_SOURCE_DIR}/src/YABTE/BackTest/Transaction.cpp
   ${CMAKE_SOURCE_DIR}/src/YABTE/BackTest/Asset.cpp
   ${CMAKE_SOURCE_DIR}/src/YABTE/BackTest/Order.cpp
+  ${CMAKE_SOURCE_DIR}/src/YABTE/BackTest/PositionalOrder.cpp
   ${CMAKE_SOURCE_DIR}/src/YABTE/BackTest/Book.cpp
   ${CMAKE_SOURCE_DIR}/src/YABTE/BackTest/Strategy.cpp
   ${CMAKE_SOURCE_DIR}/src/YABTE/BackTest/StrategyRunner.cpp

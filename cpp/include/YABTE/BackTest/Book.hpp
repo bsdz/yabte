@@ -36,6 +36,8 @@ class Book {
     string denom_;
     double cash_;
     double rate_;
+    // Cache the total value for easy access by Orders
+    double total_value_ = 0.0; 
     int interest_round_dp_;
     map<string, double> positions_;
     TransactionVector transactions_;

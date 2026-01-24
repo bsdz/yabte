@@ -1,5 +1,3 @@
-# TODO: use absolute imports until mypyc fixes relative imports in __init__.py
-# (https://github.com/mypyc/mypyc/issues/996)
 from yabte.backtest.asset import (
     ADFI_AVAILABLE_AT_CLOSE,
     ADFI_AVAILABLE_AT_OPEN,

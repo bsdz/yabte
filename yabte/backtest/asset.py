@@ -5,13 +5,11 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, TypeAlias, TypeVar, Union, cast
 
 import pandas as pd
-from mypy_extensions import mypyc_attr
 
 __all__ = ["OHLCAsset"]
 
 
-# use ints until mypyc supports IntFlag
-# https://github.com/mypyc/mypyc/issues/1022
+# TODO: switch to IntFlag since no longer using mypyc
 AssetDataFieldInfo = int
 ADFI_AVAILABLE_AT_CLOSE: int = 1
 ADFI_AVAILABLE_AT_OPEN: int = 2
@@ -23,7 +21,6 @@ AssetName: TypeAlias = str
 """Asset name string."""
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class Asset:
     """Anything that has a price."""
@@ -95,7 +92,6 @@ class Asset:
         return cast(T, data[self.data_label])
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class OHLCAsset(Asset):
     """Assets whose price history is represented by High, Low, Open, Close and Volume

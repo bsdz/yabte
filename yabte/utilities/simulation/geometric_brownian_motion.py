@@ -42,7 +42,7 @@ def gbm_simulate_paths(
         rng = np.random.default_rng()
 
     r = mu  # mu = rf in risk neutral framework
-    dt = T / n_steps
+    dt = T / (n_steps - 1)
 
     # duplicate copies of time axis to simplify broadcasting later
     ts = np.linspace(0, T, n_steps, endpoint=False)

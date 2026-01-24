@@ -8,10 +8,6 @@ from typing import Any, Dict, Iterable, List, Optional
 import numpy as np
 import pandas as pd
 
-# TODO: use explicit imports until mypyc fixes attribute lookups in dataclass
-# (https://github.com/mypyc/mypyc/issues/1000)
-from pandas import DataFrame, Series, Timestamp  # type: ignore
-
 from .asset import Asset, AssetName
 from .book import Book, BookMandate, BookName
 from .order import Order, Orders, OrderStatus
@@ -96,8 +92,13 @@ class StrategyRunnerResult:
         )
 
 
+import pyarrow as pa
+
+from .row_wrapper import MultiIndexRowWrapper
+
+
 @dataclass(kw_only=True)
-class StrategyRunner:
+class PythonStrategyRunner:
     """Encapsulates the execution of multiple strategies.
 
     Orders are captured in `orders_processed` and `orders_unprocessed`.
@@ -168,8 +169,77 @@ class StrategyRunner:
             strat._data_lock = True
 
         # run event loop
-        for ts in calendar:
+        # Convert to PyArrow Table for faster iteration
+        # Flatten MultiIndex columns: ('AAPL', 'Close') -> 'AAPL.Close'
+        df_flat = self.data.copy()
+        if isinstance(df_flat.columns, pd.MultiIndex):
+            df_flat.columns = [f"{col[0]}.{col[1]}" for col in df_flat.columns]
+
+        # Ensure 'Date' (index) is available as a column if it's not already
+        # PyArrow Table.from_pandas preserves index as metadata or column depending on opts.
+        # We explicitly iterate over the index (calendar), so we can just grab rows by index.
+        # But for 'iterating over pyarrow table', we want the table to have rows corresponding to timestamps.
+
+        # Actually, if we use PyArrow, we should iterate over the Table, not use loc[ts].
+        # But we also need the timestamp `ts` for order processing.
+        # Let's convert to table.
+        pa_table = pa.Table.from_pandas(df_flat)
+
+        # Map timestamps to row indices?
+        # Or just iterate the table directly if it's sorted (which it is).
+        # We need to ensure alignment with 'calendar' which comes from df.index.
+
+        # Let's iterate over the table rows.
+        # pydict_iterator is fast.
+        pydict_iter = pa_table.to_pydict()  # This makes a dict of lists (columns).
+        # We want row iterator. `to_pylist()` creates list of dicts.
+        # But `to_pylist()` on a large table is heavy memory-wise.
+        # Better: iterate chunks or use batches.
+        # For simplicity in this step, let's just use `to_pylist()` if data isn't massive,
+        # or iterate via batches.
+        # Actually, `zip` over columns might be fastest in pure python.
+
+        # BUT, to keep changes minimal and safe first, let's use the existing logic
+        # but fetch data from the arrow table using index if possible?
+        # No, random access in arrow is not great. Sequential is key.
+
+        # The calendar loop: `for ts in calendar:`
+        # We can zip calendar and table rows.
+
+        # Pre-convert columns to efficient list/array structures
+        # Or use `to_batches()`
+
+        # Let's use `pa_table.to_pylist()` for now as a safe first step towards "Pure Python Mode" optimization
+        # over `df.loc[ts]`. `df.loc` is known to be slow in loops.
+        # Warning: `to_pylist()` creates a full copy of data as python objects.
+        # A more memory efficient way is iterating batches.
+        # Let's stick to `df.loc` replacement strategy.
+
+        # Actually, user constraints said: "Refactor the main loop in run() to iterate over a PyArrow Table instead of df.loc[ts]."
+
+        # Efficient iteration:
+        # batches = pa_table.to_batches()
+        # for batch in batches:
+        #    for row in batch.to_pylist(): ...
+
+        # But we need 'ts'.
+        # If the index was preserved in conversion, it should be in the row?
+        # Pandas index usually becomes a column named `__index_level_0__` or similar if not named.
+        # `df.index` name usually defaults to None.
+
+        # Let's make sure index is a column.
+
+        index_name = df_flat.index.name or "timestamp"
+        # If index is unnamed, `reset_index` gives it a name 'index' or 'level_0'.
+        # We can rely on `zip(calendar, table_rows)`.
+
+        row_iter = (row for batch in pa_table.to_batches() for row in batch.to_pylist())
+
+        for ts, row_dict in zip(calendar, row_iter):
             logger.debug(f"Processing timestep {ts}")
+
+            # Wrap row for compatibility
+            day_data_wrapper = MultiIndexRowWrapper(row_dict)
 
             # open
             for strat in srr.strategies:
@@ -180,7 +250,8 @@ class StrategyRunner:
                 strat._mask_open = False
 
             # order applied with ts's data
-            day_data = self.data.loc[ts, :]
+            # day_data = self.data.loc[ts, :] # OLD SLOW WAY
+            day_data = day_data_wrapper  # NEW WRAPPED WAY
 
             # sort orders by priority
             srr._orders_unprocessed.sort_by_priority()
@@ -225,12 +296,65 @@ class StrategyRunner:
 
         return srr
 
+
+class StrategyRunner:
+    """Facade for StrategyRunner execution.
+
+    Delegates to either PythonStrategyRunner or CppStrategyRunner (future).
+    """
+
+    def __init__(
+        self,
+        data: pd.DataFrame,
+        assets: List[Asset],
+        strategies: List[Strategy],
+        mandates: Dict[AssetName, BookMandate] = None,
+        books: List[Book] = None,
+        engine: str = "auto",
+    ):
+        self.data = data
+        self.assets = assets
+        self.strategies = strategies
+        self.mandates = mandates or {}
+        self.books = books or []
+        self.engine = engine
+
+        if self.engine == "auto":
+            # Default to python for now until C++ is fully integrated/tested
+            self.engine = "python"
+
+    def run(self, params: Dict[str, Any] = None) -> StrategyRunnerResult:
+        if self.engine == "python":
+            runner = PythonStrategyRunner(
+                data=self.data,
+                assets=self.assets,
+                strategies=self.strategies,
+                mandates=self.mandates,
+                books=self.books,
+            )
+            return runner.run(params)
+        elif self.engine == "cpp":
+            from .runner_cpp import CppStrategyRunner
+
+            runner = CppStrategyRunner(
+                data=self.data,
+                assets=self.assets,
+                strategies=self.strategies,
+                mandates=self.mandates,
+                books=self.books,
+            )
+            return runner.run(params)
+        else:
+            raise ValueError(f"Unknown engine: {self.engine}")
+
     def run_batch(
         self,
         params_iterable: Iterable[Dict[str, Any]],
         executor: ProcessPoolExecutor | None = None,
     ) -> List[StrategyRunnerResult]:
         """Run a set of parameter combinations."""
+        # TODO: Refactor to support batch running across engines properly
+        # For now, simplistic delegation to run() which creates a runner each time
 
         executor = executor or concurrent.futures.ThreadPoolExecutor()
         with executor:

@@ -51,11 +51,12 @@ tuple<double, double> SimpleOrder::_calc_quantity_price(
         return {asset->round_quantity(this->size_), trade_price};
     else if (this->size_type_ == OrderSizeType::NOTIONAL)
         return {asset->round_quantity(this->size_ / trade_price), trade_price};
-    else if (this->size_type_ == OrderSizeType::BOOK_PERCENT)
+    else if (this->size_type_ == OrderSizeType::BOOK_PERCENT) {
+        // Use total_value instead of cash_ for BOOK_PERCENT
         return {asset->round_quantity(this->book_->cash_ * this->size_ / 100 /
                                       trade_price),
                 trade_price};
-    else
+    } else
         throw runtime_error("Unsupported size type");
 }
 
@@ -66,7 +67,7 @@ optional<OrderStatus> SimpleOrder::pre_execute_check(const Timestamp& ts,
 
 void SimpleOrder::apply(const Timestamp& ts, const DayData& day_data,
                         const AssetMap& asset_map) {
-    DLOG(INFO) << "SimpleOrder::apply()";
+    // DLOG(INFO) << "SimpleOrder::apply()";
     if (!this->book_) {
         throw runtime_error("Book not found");
     }

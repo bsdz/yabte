@@ -4,6 +4,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
+#include <pybind11/chrono.h>
 
 #include <format>
 
@@ -15,6 +16,7 @@
 #include "YABTE/BackTest/Asset.hpp"
 #include "YABTE/BackTest/Book.hpp"
 #include "YABTE/BackTest/Order.hpp"
+#include "YABTE/BackTest/PositionalOrder.hpp"
 #include "YABTE/BackTest/Strategy.hpp"
 #include "YABTE/BackTest/StrategyRunner.hpp"
 #include "YABTE/BackTest/Transaction.hpp"
@@ -84,11 +86,16 @@ class PyStrategy : public Strategy {
                 if (override) {
                     auto o = override(data_nc_w);
 
+                    // If python override returns None, we return nullptr
+                    if (o.is_none()) {
+                         return nullptr;
+                    }
+
                     auto status = arrow::py::unwrap_table(o.ptr());
 
                     if (!status.ok()) {
                         throw std::runtime_error(
-                            "Error converting pyarrow table to arrow table");
+                            "Error converting pyarrow table to arrow table (extend_data): " + status.status().ToString());
                     }
                     std::shared_ptr<const arrow::Table> o_uw =
                         status.ValueOrDie();
@@ -167,7 +174,8 @@ class PyOrder : public Order {
         PYBIND11_OVERRIDE(void, Order, post_complete, trades);
     };
 
-    void apply(Timestamp &ts, DayData &day_data, AssetMap &asset_map) {
+    void apply(const Timestamp &ts, const DayData &day_data,
+               const AssetMap &asset_map) override {
         PYBIND11_OVERRIDE_PURE(void, Order, apply, ts, day_data, asset_map);
     };
 };
@@ -201,7 +209,10 @@ PYBIND11_MODULE(yabte_cpp_backtest, m) {
 
     // transaction
     py::class_<Transaction, PyTransaction, shared_ptr<Transaction>>(
-        m, "Transaction");
+        m, "Transaction")
+        .def_readonly("ts", &Transaction::ts_)
+        .def_readonly("total", &Transaction::total_)
+        .def_readonly("desc", &Transaction::desc_);
 
     py::class_<CashTransaction, Transaction, shared_ptr<CashTransaction>>(
         m, "CashTransaction")
@@ -214,6 +225,10 @@ PYBIND11_MODULE(yabte_cpp_backtest, m) {
 
              py::arg("ts"), py::arg("quantity"), py::arg("price"),
              py::arg("asset_name"), py::arg("order_label") = ""s)
+        .def_readonly("quantity", &Trade::quantity_)
+        .def_readonly("price", &Trade::price_)
+        .def_readonly("asset_name", &Trade::asset_name_)
+        .def_readonly("order_label", &Trade::order_label_)
 
         .def("__repr__",
              [](const Trade &t) {
@@ -230,9 +245,22 @@ PYBIND11_MODULE(yabte_cpp_backtest, m) {
 
     // book
     py::class_<Book, PyBook, shared_ptr<Book>>(m, "Book")
-        .def(py::init<string, string, double, double, int>(), py::arg("name"),
-             py::arg("denom") = "USD", py::arg("cash") = 0.,
-             py::arg("rate") = 0., py::arg("interest_round_dp") = 3)
+        .def(py::init([](string name, string denom, double cash, double rate,
+                         int interest_round_dp, py::object mandates) {
+                 if (!mandates.is_none() && py::len(mandates) > 0) {
+                     throw std::runtime_error(
+                         "Mandates are not supported in accelerated mode.");
+                 }
+                 return new Book(name, denom, cash, rate, interest_round_dp);
+             }),
+             py::arg("name"), py::arg("denom") = "USD", py::arg("cash") = 0.,
+             py::arg("rate") = 0., py::arg("interest_round_dp") = 3,
+             py::arg("mandates") = py::none())
+        .def_readonly("name", &Book::name_)
+        .def_readonly("denom", &Book::denom_)
+        .def_readonly("cash", &Book::cash_)
+        .def_readonly("rate", &Book::rate_)
+        .def_readonly("interest_round_dp", &Book::interest_round_dp_)
         .def_readonly("transactions", &Book::transactions_)
         .def_property_readonly("history", [](const Book &b) -> py::handle {
             return arrow::py::wrap_table(b.history());
@@ -268,6 +296,11 @@ PYBIND11_MODULE(yabte_cpp_backtest, m) {
 
     py::class_<Order, PyOrder, shared_ptr<Order>>(m, "Order");
 
+    py::enum_<PositionalOrderCheckType>(m, "PositionalOrderCheckType")
+        .value("POS_TQ_DIFFER", PositionalOrderCheckType::POS_TQ_DIFFER)
+        .value("ZERO_POS", PositionalOrderCheckType::ZERO_POS)
+        .export_values();
+
     py::class_<SimpleOrder, Order, shared_ptr<SimpleOrder>>(m, "SimpleOrder")
         .def(py::init<const string &, const double &, const OrderSizeType &,
                       const optional<string> &, const optional<string> &,
@@ -278,6 +311,18 @@ PYBIND11_MODULE(yabte_cpp_backtest, m) {
              py::arg("priority") = 0, py::arg("key") = nullopt
 
         );
+
+    py::class_<PositionalOrder, SimpleOrder, shared_ptr<PositionalOrder>>(
+        m, "PositionalOrder")
+        .def(py::init<const string &, const double &, const OrderSizeType &,
+                      const PositionalOrderCheckType &,
+                      const optional<string> &, const optional<string> &,
+                      const int, const optional<string> &>(),
+             py::arg("asset_name"), py::arg("size"),
+             py::arg("size_type") = OrderSizeType::QUANTITY,
+             py::arg("check_type") = PositionalOrderCheckType::POS_TQ_DIFFER,
+             py::arg("book_name") = nullopt, py::arg("label") = nullopt,
+             py::arg("priority") = 0, py::arg("key") = nullopt);
 
     py::bind_deque<OrderDeque>(m, "OrderDeque");
 
@@ -327,11 +372,12 @@ PYBIND11_MODULE(yabte_cpp_backtest, m) {
         .def(py::init([](pybind11::object py_table, const AssetVector &assets,
                          const StrategyVector &strategies,
                          const BookVector &books) {
+
             auto status = arrow::py::unwrap_table(py_table.ptr());
 
             if (!status.ok()) {
                 throw std::runtime_error(
-                    "Error converting pyarrow table to arrow table");
+                    "Error converting pyarrow table to arrow table (constructor): " + status.status().ToString());
             }
             std::shared_ptr<arrow::Table> data = status.ValueOrDie();
 

@@ -71,8 +71,11 @@ void Book::eod_tasks(const Timestamp& ts, const DayData& day_data,
             mtm += asset->end_of_day_price(*asset->_filter_data(day_data)) * q;
         }
     }
+    
+    // Update cached total value for next day's orders
+    this->total_value_ = this->cash_ + mtm;
 
-    this->_history_.push_back({ts, this->cash_, mtm, this->cash_ + mtm});
+    this->_history_.push_back({ts, this->cash_, mtm, this->total_value_});
     // cash = float(self.cash)
     // mtm = float(
     //     sum(

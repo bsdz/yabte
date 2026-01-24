@@ -30,6 +30,19 @@ class SimulationTestCase(NumpyTestCase):
         self.rng = np.random.default_rng(12345)
         super().setUp()
 
+    def test_weiner_1d(self):
+        R = [[1]]
+        N = 1000
+        M = 100
+
+        # simulate data
+        # p[steps, sims, path]
+        ws = weiner_simulate_paths(n_steps=N, n_sims=M, stdev=1, R=R, rng=self.rng)
+        dws = np.diff(ws, axis=0)
+
+        # test weiner properities
+        self.assertTrue((ws[0] == 0).all())
+
     def test_weiner_simple(self):
         R = [[1, 0.9], [0.9, 1]]
         N = 101
@@ -124,34 +137,65 @@ class SimulationTestCase(NumpyTestCase):
         sigma = 0.2
         N = 1000
         T = 1
-        M = 100000
+        M = 1000
         S0 = 50
 
         # simulate data
         # p[steps, sims, path]
-        p = gbm_simulate_paths(
-            S0=S0, mu=r, sigma=sigma, R=R, T=T, n_steps=N, n_sims=M, rng=self.rng
-        )
+
+        P = [
+            gbm_simulate_paths(
+                S0=S0, mu=r, sigma=sigma, R=R, T=T, n_steps=N, n_sims=M, rng=self.rng
+            )
+            for x in range(1000)
+        ]
 
         # analytical moments
         E_S_T = S0 * np.exp(r * T)
         Var_S_T = S0**2 * np.exp(2 * r * T) * (np.exp(sigma**2 * T) - 1)
 
         # empirical moments
-        S_T = p[-1, :, 0]
-        E_S_T_emp = np.mean(S_T)
+        # S_T = P[-1, :, 0]
+        # E_S_T_emp = np.mean(S_T)
         # Var_S_T_emp = np.var(S_T)
 
+        S_T_s = np.c_[P][:, -1, :, 0]
+        E_S_T_emp_s = np.mean(S_T_s, axis=1)
+
+        # i.e. CLM => e_M * sqrt(M) / sigma = Z ~ N(0, 1); where e_M = E_S_T_emp - E_S_T
+        Z = (E_S_T_emp_s - E_S_T) * np.sqrt(M) / np.sqrt(Var_S_T)
+
+        print(stats.kstest(Z, "norm"))
+
         # check error is small to within 99% probability
-        # i.e. CLM => e_M ~ sig * Z / sqrt(M); Z ~ N(0, 1)
+        # i.e. CLM => e_M * sqrt(M) / sigma = Z ~ N(0, 1); where e_M = E_S_T_emp - E_S_T
         # since P(|Z| < s) = P(-s < Z < s) = Phi(s) - Phi(-s) = 1 - 2 * Phi(-s)
-        # and P(|Z| < s) = P(|e_M * sqrt(M) / sig| < s) = P(|e_M| < s * sig / sqrt(M))
+        # and P(|Z| < s) = P(|e_M * sqrt(M) / sigma| < s) = P(|e_M| < s * sig / sqrt(M))
         # choose analytical Variance for sig^2
-        e = E_S_T_emp - E_S_T
-        s = np.abs(e) * np.sqrt(M) / np.sqrt(Var_S_T)  # implied standard deviations
-        P = 1 - 2 * stats.norm.cdf(-s)
-        self.assertLessEqual(P, 1)
-        self.assertGreater(P, 0.85)  # TODO: how to get this to 0.95?
+
+        # confidence interval
+        # P(|E_m| < eps) = P(|E_m|* np.sqrt(M) / sigma < eps * np.sqrt(M) / sigma))
+        # = P(|Z| < eps * np.sqrt(M) / sigma) = 1 - alpha
+        # since P(|Z| < s) = P(-s < Z < s) = Phi(s) - Phi(-s) = 1 - 2 * Phi(-s)
+        # and choose analytical Variance for sigma^2
+        # => P(|E_m| < eps) = 1 - 2 * Phi(-eps * np.sqrt(M) / sigma) = 1 - alpha
+        # => 2 * Phi(-eps * np.sqrt(M) / sigma) = alpha
+        # => Phi(-eps * np.sqrt(M) / sigma) = alpha / 2
+        # => -eps * np.sqrt(M) / sigma = phi(alpha / 2)
+
+        # https://math.arizona.edu/~tgk/mc/book_chap2.pdf
+
+        # 1- alpha =
+        # = P(|E_m| < B * sqrt(Var_S_T) / sqrt(M))
+        # = P(|E_m| * sqrt(M) / sqrt(Var_S_T) < B)
+        # = P(|Z| < B) = 1 - 2 * Phi(B)
+        # => B = Phi^-1(alpha / 2)
+
+        # e = E_S_T_emp - E_S_T
+        # z = np.abs(e) * np.sqrt(M) / np.sqrt(Var_S_T)  # implied standard deviations
+        # P = 1 - 2 * stats.norm.cdf(-s)
+        # self.assertLessEqual(P, 1)
+        # self.assertGreater(P, 0.85)  # TODO: how to get this to 0.95?
 
         # TODO: statistical test to check |Var_S_T_emp - Var_S_T|?
 

@@ -2,6 +2,7 @@
 
 #include <arrow/table.h>
 
+#include <iostream>
 #include <regex>
 #include <stdexcept>
 
@@ -46,20 +47,52 @@ arrow::Status _FilterTable(const DayData &day_data, vector<int> &indices,
 }
 
 shared_ptr<DayData> Asset::_filter_data(const DayData &day_data) const {
+    // R"(^\('(\S+)', '(\S+)'\)$)" matches python tuple string representation
+    // e.g. "('GOOG', 'Close')" -> capture group 1: "GOOG", capture group 2: "Close"
     const std::regex field_re(R"(^\('(\S+)', '(\S+)'\)$)");
 
     vector<int> indices;
     vector<string> new_names;
 
-    for (auto const &cn : day_data.ColumnNames()) {
-        const vector<std::smatch> matches{
-            std::sregex_iterator{cn.begin(), cn.end(), field_re},
-            std::sregex_iterator{}};
-
-        if (matches.size() > 0 && matches[0].str(1) == this->data_label_) {
-            indices.push_back(day_data.schema()->GetFieldIndex(cn));
-            new_names.push_back(matches[0].str(2));
+    // Check if we are using MultiIndex columns (tuple strings) or flat columns (Dot notation)
+    // The previous debug output shows columns like "GOOG.Open", "GOOG.High", etc.
+    // This suggests the column names are NOT tuple strings but "Asset.Field".
+    
+    bool is_tuple_format = false;
+    if (day_data.num_columns() > 0) {
+        std::string first_col = day_data.ColumnNames()[0];
+        if (first_col.find("('") == 0) {
+             is_tuple_format = true;
         }
+    }
+
+    if (is_tuple_format) {
+        for (auto const &cn : day_data.ColumnNames()) {
+            const vector<std::smatch> matches{
+                std::sregex_iterator{cn.begin(), cn.end(), field_re},
+                std::sregex_iterator{}};
+
+            if (matches.size() > 0 && matches[0].str(1) == this->data_label_) {
+                indices.push_back(day_data.schema()->GetFieldIndex(cn));
+                new_names.push_back(matches[0].str(2));
+            }
+        }
+    } else {
+        // Fallback to "Asset.Field" format
+        std::string prefix = this->data_label_ + ".";
+        for (auto const &cn : day_data.ColumnNames()) {
+            if (cn.find(prefix) == 0) {
+                 indices.push_back(day_data.schema()->GetFieldIndex(cn));
+                 new_names.push_back(cn.substr(prefix.length()));
+            }
+        }
+    }
+
+    if (indices.empty()) {
+        std::cerr << "WARNING: No columns found for asset " << this->name_ << " (label: " << this->data_label_ << ")" << std::endl;
+        std::cerr << "Available columns: ";
+        for (const auto& cn : day_data.ColumnNames()) std::cerr << cn << ", ";
+        std::cerr << std::endl;
     }
 
     auto day_data_filt = day_data.Slice(0, 1);
@@ -81,21 +114,33 @@ shared_ptr<Asset> OHLCAsset::clone() const {
 
 double OHLCAsset::intraday_traded_price(const DayData &asset_day_data,
                                         const optional<double> size) const {
+    
     auto s_low = asset_day_data.GetColumnByName("Low");
+    if (!s_low) {
+         std::cerr << "ERROR: 'Low' column missing for " << this->name_ << std::endl;
+         throw std::runtime_error("Low column missing");
+    }
+
     auto s_high = asset_day_data.GetColumnByName("High");
+    if (!s_high) {
+        std::cerr << "ERROR: 'High' column missing for " << this->name_ << std::endl;
+        throw std::runtime_error("High column missing");
+    }
+
     auto st_s_low = s_low->GetScalar(0);
     auto st_s_high = s_high->GetScalar(0);
 
     if (st_s_low.ok() && st_s_high.ok()) {
-        auto low =
-            dynamic_pointer_cast<arrow::DoubleScalar>(st_s_low.ValueOrDie())
-                ->value;
-        auto high =
-            dynamic_pointer_cast<arrow::DoubleScalar>(st_s_high.ValueOrDie())
-                ->value;
+        auto low_scalar = st_s_low.ValueOrDie();
+        auto high_scalar = st_s_high.ValueOrDie();
 
-        if (!std::isnan(low) && !std::isnan(high)) {
-            return round_n_digits((low + high) / 2, this->price_round_dp_);
+        if (low_scalar && high_scalar) {
+             auto low = dynamic_pointer_cast<arrow::DoubleScalar>(low_scalar)->value;
+             auto high = dynamic_pointer_cast<arrow::DoubleScalar>(high_scalar)->value;
+
+             if (!std::isnan(low) && !std::isnan(high)) {
+                 return round_n_digits((low + high) / 2, this->price_round_dp_);
+             }
         }
     }
 
@@ -103,11 +148,11 @@ double OHLCAsset::intraday_traded_price(const DayData &asset_day_data,
     auto st_s_close = s_close->GetScalar(0);
 
     if (st_s_close.ok()) {
-        auto close =
-            dynamic_pointer_cast<arrow::DoubleScalar>(st_s_close.ValueOrDie())
-                ->value;
-
-        return round_n_digits(close, this->price_round_dp_);
+        auto close_scalar = st_s_close.ValueOrDie();
+        if (close_scalar) {
+             auto close = dynamic_pointer_cast<arrow::DoubleScalar>(close_scalar)->value;
+             return round_n_digits(close, this->price_round_dp_);
+        }
     }
 
     throw std::runtime_error("Unable to determine intraday traded price");
@@ -118,11 +163,11 @@ double OHLCAsset::end_of_day_price(const DayData &asset_day_data) const {
     auto st_s_close = s_close->GetScalar(0);
 
     if (st_s_close.ok()) {
-        auto close =
-            dynamic_pointer_cast<arrow::DoubleScalar>(st_s_close.ValueOrDie())
-                ->value;
-
-        return round_n_digits(close, this->price_round_dp_);
+        auto close_scalar = st_s_close.ValueOrDie();
+        if (close_scalar) {
+             auto close = dynamic_pointer_cast<arrow::DoubleScalar>(close_scalar)->value;
+             return round_n_digits(close, this->price_round_dp_);
+        }
     }
 
     throw std::runtime_error("Unable to determine end of day price");

@@ -14,6 +14,10 @@ Features
 
 The module provides basic statistics like book cash, mtm and total value. Currently, everything else needs to be deferred to a 3rd party module like `empyrical`.
 
+### Accelerated C++ Backend
+
+A C++ backend to the backtest modules is provided supporting most of objects from pure python module. Mandates aren't supported in C++ backend.
+
 ## Core dependencies
 
 The core module uses pandas and scipy.
@@ -123,8 +127,24 @@ Before commit run following format commands in project folder:
 nox --session do-lint
 ```
 
+### Further development
+
+Support subinterpreters in C++ backend.
+
 ### Build C++
 
 ```bash
 nox --session build-cpp
+```
+
+For debug build use:
+
+```bash
+nox --session build-cpp -- debug
+```
+
+#### Clean
+
+```bash
+nox --session clean-cpp
 ```

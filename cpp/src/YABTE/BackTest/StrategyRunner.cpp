@@ -1,9 +1,11 @@
 #include "YABTE/BackTest/StrategyRunner.hpp"
 
 #include <BS_thread_pool.hpp>
+#include <algorithm>
 #include <ranges>
 #include <unordered_map>
 #include <utility>
+#include <iostream>
 
 #include "YABTE/Utilities/Arrow/TableHelpers.hpp"
 #ifdef EXPER_PY_SUB_INTERP
@@ -52,13 +54,15 @@ StrategyRunnerResult StrategyRunner::run(const ParamMap& params) {
     SubInterpreter::ThreadScope scope(interp);
 #endif
 
-    DLOG(INFO) << "Running strategy runner";
+    // std::cout << "DEBUG: Running strategy runner" << std::endl;
     StrategyRunnerResult result;
 
     // copy books and stategies (assets are immutable but copy anyway)
+    // std::cout << "DEBUG: Cloning strategies..." << std::endl;
     for (auto& s : this->strategies_) {
         result.strategies_.push_back(shared_ptr<Strategy>(s->clone()));
     }
+    // std::cout << "DEBUG: Cloning strategies done." << std::endl;
 
     for (auto& b : this->books_)
         result.books_.push_back(shared_ptr<Book>(b->clone()));
@@ -74,54 +78,102 @@ StrategyRunnerResult StrategyRunner::run(const ParamMap& params) {
 
     auto default_book = result.books_[0];
 
+    // std::cout << "DEBUG: Getting 'Date' column..." << std::endl;
     auto calendar = this->data_->GetColumnByName("Date");
+    if (!calendar) {
+        std::cerr << "CRITICAL ERROR: 'Date' column not found in data table!" << std::endl;
+        std::cerr << "Available columns: ";
+        for (const auto& field : this->data_->schema()->fields()) {
+            std::cerr << field->name() << ", ";
+        }
+        std::cerr << std::endl;
+        throw std::runtime_error("Date column missing");
+    }
+    // std::cout << "DEBUG: 'Date' column found. Rows: " << calendar->length() << std::endl;
+
     int64_t nr = this->data_->num_rows();
 
     std::unordered_map<shared_ptr<Strategy>, shared_ptr<const Table>> data_map;
 
     // init
+    // std::cout << "DEBUG: Initializing strategies..." << std::endl;
     for (auto& strategy : result.strategies_) {
+        // std::cout << "DEBUG: Setting up strategy maps/orders..." << std::endl;
         strategy->asset_map_ = asset_map;
         strategy->book_map_ = book_map;
         strategy->orders_ = result.orders_unprocessed_;
         strategy->params_ = params;
 
         // merge tables here (using pointers to avoid copying data)
+        // std::cout << "DEBUG: Calling extend_data..." << std::endl;
         auto new_data = strategy->extend_data(this->data_);
+        // std::cout << "DEBUG: extend_data returned." << std::endl;
+
         if (new_data) {
-            DLOG(INFO) << "Extending data for strategy";
+            // std::cout << "DEBUG: Extending data..." << std::endl;
             auto st_et = ExtendTable(this->data_, new_data);
             CHECK(st_et.ok()) << "Error: " << st_et.status();
             data_map.insert(std::make_pair(
                 strategy, dynamic_pointer_cast<Table>(st_et.ValueOrDie())));
         } else {
-            DLOG(INFO) << "Not extending data for strategy";
+            // std::cout << "DEBUG: Not extending data..." << std::endl;
             data_map.insert(std::make_pair(strategy, this->data_));
         }
 
         // run strategy's init
+        // std::cout << "DEBUG: Calling strategy->init()..." << std::endl;
         strategy->init();
+        // std::cout << "DEBUG: strategy->init() completed." << std::endl;
     }
 
     // run event loop
-    for (const auto [i, ts] :
-         arrow::stl::Iterate<arrow::TimestampType>(*calendar) |
-             std::ranges::views::enumerate) {
-        if (!ts.has_value()) continue;
+    // std::cout << "DEBUG: Starting event loop..." << std::endl;
 
-        auto ts_chrono = timestamp_from_ns(*ts);
+    if (calendar->type()->id() != arrow::Type::TIMESTAMP) {
+        throw std::runtime_error("Date column is not TIMESTAMP type");
+    }
+
+    int64_t i = 0;
+    for (const auto& chunk : calendar->chunks()) {
+        auto ts_array = std::static_pointer_cast<arrow::TimestampArray>(chunk);
+        for (int64_t j = 0; j < ts_array->length(); ++j, ++i) {
+            if (ts_array->IsNull(j)) {
+                // std::cout << "DEBUG: Skipping row " << i << " (no timestamp)"
+                //           << std::endl;
+                continue;
+            }
+
+            auto ts_val = ts_array->Value(j);
+            // std::cout << "DEBUG: Processing row " << i << " ts=" << ts_val
+            //           << std::endl;
+
+            auto ts_chrono = timestamp_from_ns(ts_val);
         auto day_data = this->data_->Slice(i, 1);
+        // std::cout << "DEBUG: Sliced day_data" << std::endl;
 
         vector<shared_ptr<Order>> orders_next_ts;
 
         // open
+        // std::cout << "DEBUG: Calling on_open for strategies..." << std::endl;
         for (auto& strategy : result.strategies_) {
             // TODO: mask out non-open available data
             strategy->data_ = data_map[strategy]->Slice(0, i + 1);
+            // std::cout << "DEBUG: Sliced strategy data for on_open" << std::endl;
             strategy->on_open();
+            // std::cout << "DEBUG: on_open done for a strategy" << std::endl;
         }
 
         // process orders
+        // std::cout << "DEBUG: Processing orders..." << std::endl;
+        if (!result.orders_unprocessed_->empty()) {
+            std::stable_sort(result.orders_unprocessed_->begin(),
+                             result.orders_unprocessed_->end(),
+                             [](const shared_ptr<Order>& a,
+                                const shared_ptr<Order>& b) {
+                                 return a->priority_ > b->priority_;
+                             });
+        }
+
         while (!result.orders_unprocessed_->empty()) {
             auto order = result.orders_unprocessed_->front();
             result.orders_unprocessed_->pop_front();
@@ -136,6 +188,7 @@ StrategyRunnerResult StrategyRunner::run(const ParamMap& params) {
                 }
             }
 
+            // std::cout << "DEBUG: Applying order..." << std::endl;
             order->apply(ts_chrono, *day_data, *asset_map);
 
             // add any child orders to next ts
@@ -152,17 +205,22 @@ StrategyRunnerResult StrategyRunner::run(const ParamMap& params) {
                                            orders_next_ts.end());
 
         // close
+        // std::cout << "DEBUG: Calling on_close for strategies..." << std::endl;
         for (auto& strategy : result.strategies_) {
             strategy->on_close();
+            // std::cout << "DEBUG: on_close done for a strategy" << std::endl;
         }
 
         // run book end-of-day tasks
+        // std::cout << "DEBUG: Running book EOD tasks..." << std::endl;
         for (auto& book : result.books_) {
             book->eod_tasks(ts_chrono, *day_data, *asset_map);
         }
+        // std::cout << "DEBUG: Finished row " << i << std::endl;
+    }
     }
 
-    DLOG(INFO) << "Finished running strategy runner";
+    // std::cout << "DEBUG: Finished running strategy runner" << std::endl;
     return result;
 }
 
@@ -189,17 +247,17 @@ vector<StrategyRunnerResult> StrategyRunner::run_batch(
 
     // #ifdef EXPER_PY_SUB_INTERP
     //     Interpreter interp;
-    //     ThreadsAllowedScope t1;
-    //     vector<SubInterpreter> subinterps(tp_num_threads);
-    // #endif
-
-    BS::multi_future<StrategyRunnerResult> sequence_future =
-        pool.submit_sequence<int>(0, params_vector.size(),
-                                  [this, &params_vector](int i) {
-                                      return this->run(params_vector[i]);
-                                  });
-    std::vector<StrategyRunnerResult> results = sequence_future.get();
-    return results;
-}
-
-}  // namespace YABTE::BackTest
+    //     //     ThreadsAllowedScope t1;
+    //     //     vector<SubInterpreter> subinterps(tp_num_threads);
+    //     // #endif
+    
+        BS::multi_future<StrategyRunnerResult> sequence_future =
+            pool.submit_sequence<int>(0, params_vector.size(),
+                                      [this, &params_vector](int i) {
+                                          return this->run(params_vector[i]);
+                                      });
+        std::vector<StrategyRunnerResult> results = sequence_future.get();
+        return results;
+    }
+    
+    }  // namespace YABTE::BackTest

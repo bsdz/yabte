@@ -8,7 +8,6 @@ from enum import Enum
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
-from mypy_extensions import mypyc_attr
 
 from ._helpers import ensure_decimal, ensure_enum
 from .asset import Asset, AssetName
@@ -52,7 +51,6 @@ class OrderSizeType(Enum):
     """Size is a percentage of book value."""
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class Order:
     """Base class for all orders."""
@@ -155,7 +153,6 @@ class Orders:
         return removed
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class SimpleOrder(Order):
     """Simple market order."""
@@ -238,7 +235,6 @@ class PositionalOrderCheckType(Enum):
     ZERO_POS = 2
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class PositionalOrder(SimpleOrder):
     """Ensures current position is `size` and will close out existing positions to
@@ -298,7 +294,6 @@ class PositionalOrder(SimpleOrder):
         self._book_trades(trades)
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass
 class BasketOrder(Order):
     """Combine multiple assets into a single order."""
@@ -380,7 +375,6 @@ class BasketOrder(Order):
         self._book_trades(trades)
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class PositionalBasketOrder(BasketOrder):
     """Similar to a :py:class:`BasketOrder` but will close out existing positions if

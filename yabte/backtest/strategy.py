@@ -4,11 +4,6 @@ from itertools import chain, product
 from typing import Dict
 
 import pandas as pd
-from mypy_extensions import mypyc_attr
-
-# TODO: use explicit imports until mypyc fixes attribute lookups in dataclass
-# (https://github.com/mypyc/mypyc/issues/1000)
-from pandas import DataFrame, Series, Timestamp  # type: ignore
 
 from .asset import ADFI_AVAILABLE_AT_OPEN, Asset, AssetName
 from .book import Book, BookName
@@ -19,7 +14,6 @@ logger = logging.getLogger(__name__)
 __all__ = ["Strategy"]
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class Strategy:
     """Trading strategy base class.

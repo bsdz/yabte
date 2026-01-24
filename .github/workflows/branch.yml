@@ -2,46 +2,25 @@ name: Push
 on: [push]
 
 jobs:
+  generate-jobs:
+    runs-on: ubuntu-latest
+    outputs:
+      session: ${{ steps.set-matrix.outputs.session }}
+    steps:
+    - uses: actions/checkout@v3
+    - uses: wntrblm/nox@main
+    - id: set-matrix
+      shell: bash
+      run: echo session=$(nox --json -l | jq -c '[.[].session]') | tee --append $GITHUB_OUTPUT
   checks:
+    name: Session ${{ matrix.session }}
+    needs: [generate-jobs]
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            python-version: "3.10"
-            poetry-version: "1.3.1"
-            use-mypyc: true
-          - os: ubuntu-latest
-            python-version: "3.10"
-            poetry-version: "1.3.1"
-            use-mypyc: false
-    runs-on: ${{ matrix.os }}
+        session: ${{ fromJson(needs.generate-jobs.outputs.session) }}
     steps:
-      - uses: actions/checkout@v3
-      - name: Install poetry
-        run: pipx install poetry==${{ matrix.poetry-version }}
-      - uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: "poetry"
-      - name: Install dependencies
-        run: poetry install --with dev
-      - if: ${{ matrix.use-mypyc }}
-        name: Build mypyc modules
-        run: poetry run python build_mypyc.py --inplace
-      - name: Run tests with coverage
-        run: poetry run coverage run -m unittest
-      - name: Show coverage report
-        run: poetry run coverage report -m
-      - name: Run black
-        run: poetry run black . --check
-      - name: Run isort
-        run: poetry run isort . --check-only --profile black
-      - name: Run docformatter
-        run: poetry run docformatter . --recursive --check --diff --black --exclude _unittest_numpy_extensions.py
-#       - name: Run flake8
-#         run: poetry run flake8 .
-#       - name: Run bandit
-#         run: poetry run bandit .
-#       - name: Run saftey
-#         run: poetry run safety check
+    - uses: actions/checkout@v3
+    - uses: wntrblm/nox@main
+    - run: nox -s "${{ matrix.session }}"
