@@ -22,5 +22,10 @@ jobs:
         session: ${{ fromJson(needs.generate-jobs.outputs.session) }}
     steps:
     - uses: actions/checkout@v3
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential
+        pip install conan
     - uses: wntrblm/nox@main
     - run: nox -s "${{ matrix.session }}"

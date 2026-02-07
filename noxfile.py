@@ -42,6 +42,22 @@ def build_cpp_impl(session, build_type):
                 session.run("ctest", "--output-on-failure", "-C", build_type)
 
 
+def clean_cpp_impl(session, build_type):
+    output_folder = f"build/{build_type}"
+
+    with session.chdir("cpp"):
+        with session.chdir(output_folder):
+            session.run(
+                "cmake",
+                "../..",
+                f"-DCMAKE_BUILD_TYPE={build_type}",
+            )
+
+            session.run(
+                "cmake", "--build", ".", "--target", "clean", "--config", build_type
+            )
+
+
 @nox.session(name="do-lint")
 def do_lint(session):
     session.install(*get_optional_dependencies("dev"))
@@ -142,17 +158,4 @@ def cpp_build(session, build_type):
 @nox.session(name="clean-cpp")
 @nox.parametrize("build_type", ["Debug", "Release"], ids=["debug", "release"])
 def cpp_clean(session, build_type):
-    session.chdir("cpp")
-
-    output_folder = f"build/{build_type}"
-
-    with session.chdir(output_folder):
-        session.run(
-            "cmake",
-            "../..",
-            f"-DCMAKE_BUILD_TYPE={build_type}",
-        )
-
-        session.run(
-            "cmake", "--build", ".", "--target", "clean", "--config", build_type
-        )
+    clean_cpp_impl(session, build_type)
