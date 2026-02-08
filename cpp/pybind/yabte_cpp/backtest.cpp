@@ -185,7 +185,7 @@ PYBIND11_MAKE_OPAQUE(BookMap)
 PYBIND11_MAKE_OPAQUE(OrderDeque)
 // PYBIND11_MAKE_OPAQUE(TransactionVector)
 
-PYBIND11_MODULE(yabte_cpp_backtest, m) {
+PYBIND11_MODULE(_yabte_backtest_lib, m) {
     arrow::py::import_pyarrow();
 
     m.doc() = R"pbdoc(
@@ -238,6 +238,19 @@ PYBIND11_MODULE(yabte_cpp_backtest, m) {
                      t.ts_, t.total_, t.desc_, t.quantity_, t.price_,
                      t.asset_name_);
              })
+        .def_property_readonly(
+            "total",
+            [](const Trade &t) -> py::object {
+                // Return total as Decimal("...") to match Python's Trade.total type
+                // We use pybind11's eval or import to get decimal.Decimal
+                py::object Decimal = py::module_::import("decimal").attr("Decimal");
+                // Convert double to string first to avoid float precision issues during init
+                // Using 2 decimal places for string formatting as per our rounding logic
+                // Or maybe just let Python handle the float string?
+                // Let's use format with enough precision then stringify
+                std::string s = std::format("{:.2f}", t.total_);
+                return Decimal(s);
+            })
 
         ;
 
@@ -269,7 +282,8 @@ PYBIND11_MODULE(yabte_cpp_backtest, m) {
     py::bind_map<BookMap>(m, "BookMap");
 
     // asset
-    py::class_<Asset, PyAsset, shared_ptr<Asset>>(m, "Asset");
+    py::class_<Asset, PyAsset, shared_ptr<Asset>>(m, "Asset")
+        .def("round_quantity", &Asset::round_quantity);
 
     py::class_<OHLCAsset, Asset, shared_ptr<OHLCAsset>>(m, "OHLCAsset")
         .def(py::init<const string &, const string &, const int, const int,

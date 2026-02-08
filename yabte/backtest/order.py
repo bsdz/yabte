@@ -179,6 +179,8 @@ class SimpleOrder(Order):
     ) -> Tuple[Decimal, Decimal]:
         asset = asset_map[self.asset_name]
         asset_day_data = asset._filter_data(day_data)
+        # set to ts since MultiIndexRowWrapper doesn't support .name access for timestamp, and some asset price methods might need it
+        asset_day_data.name = day_data.timestamp
         trade_price = asset.intraday_traded_price(asset_day_data, size=self.size)
 
         if self.size_type == OrderSizeType.QUANTITY:

@@ -239,7 +239,7 @@ class PythonStrategyRunner:
             logger.debug(f"Processing timestep {ts}")
 
             # Wrap row for compatibility
-            day_data_wrapper = MultiIndexRowWrapper(row_dict)
+            day_data_wrapper = MultiIndexRowWrapper(row_dict, ts)
 
             # open
             for strat in srr.strategies:

@@ -2,6 +2,9 @@
 
 #include <arrow/builder.h>
 #include <arrow/compute/api.h>
+#include <arrow/compute/function.h>
+#include <arrow/compute/registry.h>
+
 #include <arrow/json/reader.h>
 #include <glog/logging.h>
 #include <parquet/arrow/reader.h>
@@ -29,8 +32,8 @@ Result<shared_ptr<Table>> LoadTable(string path) {
     ARROW_ASSIGN_OR_RAISE(arrow_reader, parquet::arrow::OpenFile(input, pool));
 #else
     // Standard Conan Arrow API (used by yabte_objs/yabte_lib_static)
-    // OpenFile returns Status and takes out-pointer
-    ARROW_RETURN_NOT_OK(parquet::arrow::OpenFile(input, pool, &arrow_reader));
+    // OpenFile returns Result<unique_ptr> in newer Arrow versions (>=15.0.0)
+    ARROW_ASSIGN_OR_RAISE(arrow_reader, parquet::arrow::OpenFile(input, pool));
 #endif
 
     // Read entire file as a single Arrow table
@@ -48,7 +51,7 @@ Result<shared_ptr<ChunkedArray>> ComputeMovingAverage(
     for (int x : iota(0, vals->length() - n)) {
         auto slice = vals->Slice(x, n);
         arrow::Datum sum;
-        ARROW_ASSIGN_OR_RAISE(sum, arrow::compute::Mean({slice}));
+        ARROW_ASSIGN_OR_RAISE(sum, arrow::compute::Mean(slice));
         ma.push_back(sum.scalar_as<arrow::DoubleScalar>().value);
     }
 

@@ -12,9 +12,14 @@ class MultiIndexRowWrapper:
     reading from a flattened PyArrow structure where keys are "Asset.Close".
     """
 
-    def __init__(self, row_dict: Mapping[str, Any]):
+    def __init__(self, row_dict: Mapping[str, Any], ts: pd.Timestamp):
         self._row = row_dict
         self._cache: Dict[str, Any] = {}
+        self._ts = ts
+
+    @property
+    def timestamp(self) -> pd.Timestamp:
+        return self._ts
 
     def __getitem__(self, key: str) -> Union[pd.Series, Any]:
         """Access asset data or direct fields."""

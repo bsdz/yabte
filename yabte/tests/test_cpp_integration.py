@@ -28,10 +28,9 @@ class TestCppIntegration(unittest.TestCase):
     def test_cpp_engine_basic(self):
         """Test basic execution of C++ engine."""
         try:
-            import yabte_cpp_backtest
+            import _yabte_backtest_lib
         except ImportError as e:
-            # self.skipTest("yabte_cpp_backtest not installed")
-            self.fail(f"Failed to import yabte_cpp_backtest: {e}")
+            self.fail(f"Failed to import _yabte_backtest_lib: {e}")
 
         # Define a simple strategy
         class SimpleTestStrat(Strategy):

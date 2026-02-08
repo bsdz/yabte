@@ -71,6 +71,8 @@ add_library(
 target_link_libraries(
   ${YABTE_LIB_STATIC}
   arrow::arrow
+  ArrowCompute::arrow_compute_static
+  Parquet::parquet_static
   glog::glog
   pybind11::embed
   bshoshany-thread-pool::bshoshany-thread-pool

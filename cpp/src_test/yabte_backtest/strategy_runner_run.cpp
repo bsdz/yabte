@@ -1,5 +1,7 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
+#include <pybind11/embed.h>
+#include <pybind11/pybind11.h>
 
 #include <filesystem>
 #include <memory>
@@ -13,6 +15,8 @@
 #include "YABTE/Utilities/Arrow/TableHelpers.hpp"
 #include "data/test_data.h"
 #include "yabte_backtest/test_strategy_01.h"
+
+namespace py = pybind11;
 
 namespace {
 auto death_test_matcher = []() {
@@ -61,10 +65,20 @@ void test_runner_01(bool& success) {
     success = true;
 }
 
+#include <arrow/compute/registry.h>
+#include <arrow/compute/initialize.h> // Include initialization header
+
 TEST(RunnerTest, RunSmokeTest) {
     GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_EXIT(
         {
+            // Initialize interpreter inside the forked process as well
+            py::scoped_interpreter guard{};
+            py::module_::import("pyarrow");
+
+            // Explicitly initialize Arrow Compute to register all functions
+            arrow::compute::Initialize();
+
             bool success = false;
             test_runner_01(success);
             if (!success) {

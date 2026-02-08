@@ -1,4 +1,5 @@
 from copy import deepcopy
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -14,7 +15,7 @@ from .strategy import Strategy
 from .strategyrunner import StrategyRunnerResult
 
 try:
-    import yabte_cpp_backtest as yabte_cpp
+    import _yabte_backtest_lib as yabte_cpp
 except ImportError:
     yabte_cpp = None
 
@@ -187,13 +188,17 @@ class CppStrategyRunner:
                     if t.quantity == 0:
                         continue
 
+                    # Manually handle total precision from C++ if needed.
+                    # Even though C++ rounds the internal double, converting Double -> Decimal
+                    # directly introduces floating point noise. We format to string first.
+                    # We assume 2dp based on the C++ rounding logic for Trades.
                     py_t = Trade(
                         ts=t.ts,
                         quantity=t.quantity,
                         price=t.price,
                         asset_name=t.asset_name,
                         order_label=t.order_label,
-                        total=t.total,
+                        total=Decimal(f"{t.total:.2f}"),
                         desc=t.desc,
                     )
                     py_trans.append(py_t)

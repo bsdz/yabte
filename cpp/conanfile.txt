@@ -1,5 +1,5 @@
 [requires]
-arrow/15.0.0
+arrow/23.0.0
 glog/0.6.0
 gtest/1.14.0
 pybind11/2.11.1
@@ -13,6 +13,8 @@ arrow/*:with_snappy=True
 arrow/*:with_re2=True
 arrow/*:compute=True
 arrow/*:with_json=True
+boost/*:without_cobalt=True
+boost/*:without_test=True
 
 [generators]
 CMakeDeps

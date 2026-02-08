@@ -1,4 +1,4 @@
-set(YABTE_CPP_MODULE yabte_cpp_backtest)
+set(YABTE_CPP_MODULE _yabte_backtest_lib)
 
 # Define core sources directly to recompile them against PyArrow headers
 set(YABTE_CORE_SOURCES

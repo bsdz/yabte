@@ -28,10 +28,11 @@ logger = logging.getLogger(__name__)
 
 # Check if C++ engine is available
 try:
-    import yabte_cpp_backtest
+    import _yabte_backtest_lib
 
     HAS_CPP = True
-except ImportError:
+except ImportError as e:
+    logger.warning(f"C++ engine not available: {e}")
     HAS_CPP = False
 
 
@@ -261,6 +262,12 @@ class StrategyRunnerTestCase(NumpyTestCase):
             atol=1e-14,
             err_msg=f"{context}: Total transaction quantity mismatch",
         )
+
+    def test_cpp_availability(self):
+        if HAS_CPP:
+            print("C++ engine is available for testing.")
+        else:
+            print("C++ engine is NOT available. C++ parity tests will be skipped.")
 
     def test_sma_crossover(self):
         kwargs = {
