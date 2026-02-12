@@ -58,9 +58,6 @@ list(GET ARROW_LIB_FILES 0 ARROW_LIB)
 
 find_library(ARROW_PYTHON_LIB arrow_python HINTS ${PYARROW_LIB_DIR} NO_DEFAULT_PATH)
 
-# Find re2 from Conan to link it statically if needed
-find_package(re2 REQUIRED)
-find_package(Snappy REQUIRED)
 
 message(STATUS "Found Arrow Lib: ${ARROW_LIB}")
 message(STATUS "Found Arrow Python Lib: ${ARROW_PYTHON_LIB}")
@@ -72,7 +69,6 @@ target_link_libraries(${YABTE_CPP_MODULE} PRIVATE
     glog::glog
     bshoshany-thread-pool::bshoshany-thread-pool
     re2::re2
-    Snappy::snappy
 )
 
 # Define YABTE_USE_PYARROW_API to handle API differences in TableHelpers.cpp

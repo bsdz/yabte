@@ -12,6 +12,7 @@ find_package(glog REQUIRED)
 find_package(Python COMPONENTS Interpreter Development REQUIRED)
 find_package(pybind11 CONFIG REQUIRED)
 find_package(bshoshany-thread-pool REQUIRED)
+find_package(re2 REQUIRED)
 
 # file(GLOB_RECURSE SOURCES src *.cpp)
 # file(GLOB_RECURSE SOURCES_TEST src_test *.cpp)
@@ -71,8 +72,6 @@ add_library(
 target_link_libraries(
   ${YABTE_LIB_STATIC}
   arrow::arrow
-  ArrowCompute::arrow_compute_static
-  Parquet::parquet_static
   glog::glog
   pybind11::embed
   bshoshany-thread-pool::bshoshany-thread-pool
