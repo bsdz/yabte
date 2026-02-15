@@ -56,8 +56,8 @@ void Book::eod_tasks(const Timestamp& ts, const DayData& day_data,
     // Run end of day tasks such as book keeping."""
     // accumulate continously compounded interest
 
-    auto interest = round_n_digits(this->cash_ * (std::exp(this->rate_) - 1),
-                                   this->interest_round_dp_);
+    auto interest = round_dp(this->cash_ * (std::exp(this->rate_) - 1),
+                             this->interest_round_dp_);
     if (this->rate_ != 0 && interest != 0) {
         auto cash_trans = CashTransaction(
             ts, interest, "interest payment on cash {self.cash:.2f}"s);
@@ -71,20 +71,11 @@ void Book::eod_tasks(const Timestamp& ts, const DayData& day_data,
             mtm += asset->end_of_day_price(*asset->_filter_data(day_data)) * q;
         }
     }
-    
+
     // Update cached total value for next day's orders
     this->total_value_ = this->cash_ + mtm;
 
     this->_history_.push_back({ts, this->cash_, mtm, this->total_value_});
-    // cash = float(self.cash)
-    // mtm = float(
-    //     sum(
-    //         asset.end_of_day_price(asset._filter_data(day_data)) * q
-    //         for an, q in self.positions.items()
-    //         if (asset := asset_map.get(an))
-    //     )
-    // )
-    // self._history.append([ts, cash, mtm, cash + mtm])
 }
 
 shared_ptr<Table> Book::history() const {

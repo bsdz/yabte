@@ -8,7 +8,7 @@ namespace YABTE::BackTest {
 
 Transaction::Transaction(const Timestamp &ts, const double &total,
                          const string &desc)
-    : ts_(ts), total_(total), desc_(desc){};
+    : ts_(ts), total_(total), desc_(desc) {};
 
 shared_ptr<Transaction> Transaction::clone() const {
     return make_shared<Transaction>(*this);

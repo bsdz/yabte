@@ -10,8 +10,10 @@ using std::dynamic_pointer_cast, std::make_shared;
 
 namespace YABTE::BackTest {
 
-Asset::Asset(const string &name, const string &denom, const int price_round_dp,
-             const int quantity_round_dp, const optional<string> &data_label)
+Asset::Asset(const string &name, const string &denom,
+             const optional<int> &price_round_dp,
+             const optional<int> &quantity_round_dp,
+             const optional<string> &data_label)
     : name_(name),
       denom_(denom),
       price_round_dp_(price_round_dp),
@@ -24,7 +26,7 @@ Asset::Asset(const string &name, const string &denom, const int price_round_dp,
 }
 
 double Asset::round_quantity(const double &quantity) const {
-    return round_n_digits(quantity, this->quantity_round_dp_);
+    return round_dp(quantity, this->quantity_round_dp_);
 }
 
 vector<string> Asset::_get_fields(const AssetDataFieldInfo &field_info) const {
@@ -48,21 +50,23 @@ arrow::Status _FilterTable(const DayData &day_data, vector<int> &indices,
 
 shared_ptr<DayData> Asset::_filter_data(const DayData &day_data) const {
     // R"(^\('(\S+)', '(\S+)'\)$)" matches python tuple string representation
-    // e.g. "('GOOG', 'Close')" -> capture group 1: "GOOG", capture group 2: "Close"
+    // e.g. "('GOOG', 'Close')" -> capture group 1: "GOOG", capture group 2:
+    // "Close"
     const std::regex field_re(R"(^\('(\S+)', '(\S+)'\)$)");
 
     vector<int> indices;
     vector<string> new_names;
 
-    // Check if we are using MultiIndex columns (tuple strings) or flat columns (Dot notation)
-    // The previous debug output shows columns like "GOOG.Open", "GOOG.High", etc.
-    // This suggests the column names are NOT tuple strings but "Asset.Field".
-    
+    // Check if we are using MultiIndex columns (tuple strings) or flat columns
+    // (Dot notation) The previous debug output shows columns like "GOOG.Open",
+    // "GOOG.High", etc. This suggests the column names are NOT tuple strings
+    // but "Asset.Field".
+
     bool is_tuple_format = false;
     if (day_data.num_columns() > 0) {
         std::string first_col = day_data.ColumnNames()[0];
         if (first_col.find("('") == 0) {
-             is_tuple_format = true;
+            is_tuple_format = true;
         }
     }
 
@@ -82,16 +86,17 @@ shared_ptr<DayData> Asset::_filter_data(const DayData &day_data) const {
         std::string prefix = this->data_label_ + ".";
         for (auto const &cn : day_data.ColumnNames()) {
             if (cn.find(prefix) == 0) {
-                 indices.push_back(day_data.schema()->GetFieldIndex(cn));
-                 new_names.push_back(cn.substr(prefix.length()));
+                indices.push_back(day_data.schema()->GetFieldIndex(cn));
+                new_names.push_back(cn.substr(prefix.length()));
             }
         }
     }
 
     if (indices.empty()) {
-        std::cerr << "WARNING: No columns found for asset " << this->name_ << " (label: " << this->data_label_ << ")" << std::endl;
+        std::cerr << "WARNING: No columns found for asset " << this->name_
+                  << " (label: " << this->data_label_ << ")" << std::endl;
         std::cerr << "Available columns: ";
-        for (const auto& cn : day_data.ColumnNames()) std::cerr << cn << ", ";
+        for (const auto &cn : day_data.ColumnNames()) std::cerr << cn << ", ";
         std::cerr << std::endl;
     }
 
@@ -104,7 +109,8 @@ shared_ptr<DayData> Asset::_filter_data(const DayData &day_data) const {
 }
 
 OHLCAsset::OHLCAsset(const string &name, const string &denom,
-                     const int price_round_dp, const int quantity_round_dp,
+                     const optional<int> &price_round_dp,
+                     const optional<int> &quantity_round_dp,
                      const optional<string> &data_label)
     : Asset(name, denom, price_round_dp, quantity_round_dp, data_label) {}
 
@@ -114,16 +120,17 @@ shared_ptr<Asset> OHLCAsset::clone() const {
 
 double OHLCAsset::intraday_traded_price(const DayData &asset_day_data,
                                         const optional<double> size) const {
-    
     auto s_low = asset_day_data.GetColumnByName("Low");
     if (!s_low) {
-         std::cerr << "ERROR: 'Low' column missing for " << this->name_ << std::endl;
-         throw std::runtime_error("Low column missing");
+        std::cerr << "ERROR: 'Low' column missing for " << this->name_
+                  << std::endl;
+        throw std::runtime_error("Low column missing");
     }
 
     auto s_high = asset_day_data.GetColumnByName("High");
     if (!s_high) {
-        std::cerr << "ERROR: 'High' column missing for " << this->name_ << std::endl;
+        std::cerr << "ERROR: 'High' column missing for " << this->name_
+                  << std::endl;
         throw std::runtime_error("High column missing");
     }
 
@@ -135,12 +142,14 @@ double OHLCAsset::intraday_traded_price(const DayData &asset_day_data,
         auto high_scalar = st_s_high.ValueOrDie();
 
         if (low_scalar && high_scalar) {
-             auto low = dynamic_pointer_cast<arrow::DoubleScalar>(low_scalar)->value;
-             auto high = dynamic_pointer_cast<arrow::DoubleScalar>(high_scalar)->value;
+            auto low =
+                dynamic_pointer_cast<arrow::DoubleScalar>(low_scalar)->value;
+            auto high =
+                dynamic_pointer_cast<arrow::DoubleScalar>(high_scalar)->value;
 
-             if (!std::isnan(low) && !std::isnan(high)) {
-                 return round_n_digits((low + high) / 2, this->price_round_dp_);
-             }
+            if (!std::isnan(low) && !std::isnan(high)) {
+                return round_dp((low + high) / 2, this->price_round_dp_);
+            }
         }
     }
 
@@ -150,8 +159,9 @@ double OHLCAsset::intraday_traded_price(const DayData &asset_day_data,
     if (st_s_close.ok()) {
         auto close_scalar = st_s_close.ValueOrDie();
         if (close_scalar) {
-             auto close = dynamic_pointer_cast<arrow::DoubleScalar>(close_scalar)->value;
-             return round_n_digits(close, this->price_round_dp_);
+            auto close =
+                dynamic_pointer_cast<arrow::DoubleScalar>(close_scalar)->value;
+            return round_dp(close, this->price_round_dp_);
         }
     }
 
@@ -165,8 +175,9 @@ double OHLCAsset::end_of_day_price(const DayData &asset_day_data) const {
     if (st_s_close.ok()) {
         auto close_scalar = st_s_close.ValueOrDie();
         if (close_scalar) {
-             auto close = dynamic_pointer_cast<arrow::DoubleScalar>(close_scalar)->value;
-             return round_n_digits(close, this->price_round_dp_);
+            auto close =
+                dynamic_pointer_cast<arrow::DoubleScalar>(close_scalar)->value;
+            return round_dp(close, this->price_round_dp_);
         }
     }
 

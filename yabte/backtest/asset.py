@@ -1,10 +1,10 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import TYPE_CHECKING, TypeAlias, TypeVar, Union, cast
+from typing import TypeAlias, TypeVar, Union, cast
 
 import pandas as pd
+
+from ._helpers import round_dp
 
 __all__ = ["OHLCAsset"]
 
@@ -49,7 +49,7 @@ class Asset:
 
     def round_quantity(self, quantity) -> Decimal:
         """Round `quantity`."""
-        return round(quantity, self.quantity_round_dp)
+        return round_dp(quantity, self.quantity_round_dp)
 
     def intraday_traded_price(
         self, asset_day_data: pd.Series, size: Decimal | None = None
@@ -113,10 +113,11 @@ class OHLCAsset(Asset):
             p = Decimal((asset_day_data.Low + asset_day_data.High) / 2)
         else:
             p = Decimal(asset_day_data.Close)
-        return round(p, self.price_round_dp)
+
+        return round_dp(p, self.price_round_dp)
 
     def end_of_day_price(self, asset_day_data: pd.Series) -> Decimal:
-        return round(Decimal(asset_day_data.Close), self.price_round_dp)
+        return round_dp(Decimal(asset_day_data.Close), self.price_round_dp)
 
     def check_and_fix_data(self, data: pd.DataFrame) -> pd.DataFrame:
         # TODO: check low <= open, high, close & high >= open, low, close

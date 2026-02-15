@@ -1,6 +1,6 @@
 from copy import deepcopy
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
@@ -9,7 +9,7 @@ import pyarrow as pa
 from .asset import Asset, AssetName
 from .asset import OHLCAsset as PyOHLCAsset
 from .book import Book, BookMandate
-from .order import Order, Orders
+from .order import Orders
 from .row_wrapper import MultiIndexRowWrapper
 from .strategy import Strategy
 from .strategyrunner import StrategyRunnerResult
@@ -227,11 +227,12 @@ class CppStrategyRunner:
         return res
 
 
-class CppStrategyAdapter(yabte_cpp.Strategy):
+class CppStrategyAdapter(yabte_cpp.Strategy if yabte_cpp else object):
     """Adapts a pure Python Strategy to be callable by C++ engine."""
 
     def __init__(self, python_strategy: Strategy):
-        super().__init__()
+        if yabte_cpp:
+            super().__init__()
         self.python_strategy = python_strategy
 
     def clone(self):

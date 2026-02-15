@@ -1,10 +1,10 @@
 #include <arrow/python/pyarrow.h>
 // #include <pybind11/iostream.h>
+#include <pybind11/chrono.h>
 #include <pybind11/gil.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
-#include <pybind11/chrono.h>
 
 #include <format>
 
@@ -88,14 +88,16 @@ class PyStrategy : public Strategy {
 
                     // If python override returns None, we return nullptr
                     if (o.is_none()) {
-                         return nullptr;
+                        return nullptr;
                     }
 
                     auto status = arrow::py::unwrap_table(o.ptr());
 
                     if (!status.ok()) {
                         throw std::runtime_error(
-                            "Error converting pyarrow table to arrow table (extend_data): " + status.status().ToString());
+                            "Error converting pyarrow table to arrow table "
+                            "(extend_data): " +
+                            status.status().ToString());
                     }
                     std::shared_ptr<const arrow::Table> o_uw =
                         status.ValueOrDie();
@@ -241,13 +243,15 @@ PYBIND11_MODULE(_yabte_backtest_lib, m) {
         .def_property_readonly(
             "total",
             [](const Trade &t) -> py::object {
-                // Return total as Decimal("...") to match Python's Trade.total type
-                // We use pybind11's eval or import to get decimal.Decimal
-                py::object Decimal = py::module_::import("decimal").attr("Decimal");
-                // Convert double to string first to avoid float precision issues during init
-                // Using 2 decimal places for string formatting as per our rounding logic
-                // Or maybe just let Python handle the float string?
-                // Let's use format with enough precision then stringify
+                // Return total as Decimal("...") to match Python's Trade.total
+                // type We use pybind11's eval or import to get decimal.Decimal
+                py::object Decimal =
+                    py::module_::import("decimal").attr("Decimal");
+                // Convert double to string first to avoid float precision
+                // issues during init Using 2 decimal places for string
+                // formatting as per our rounding logic Or maybe just let Python
+                // handle the float string? Let's use format with enough
+                // precision then stringify
                 std::string s = std::format("{:.2f}", t.total_);
                 return Decimal(s);
             })
@@ -286,8 +290,8 @@ PYBIND11_MODULE(_yabte_backtest_lib, m) {
         .def("round_quantity", &Asset::round_quantity);
 
     py::class_<OHLCAsset, Asset, shared_ptr<OHLCAsset>>(m, "OHLCAsset")
-        .def(py::init<const string &, const string &, const int, const int,
-                      const optional<string> &>(),
+        .def(py::init<const string &, const string &, const optional<int> &,
+                      const optional<int> &, const optional<string> &>(),
              py::arg("name"), py::arg("denom") = "USD",
              py::arg("price_round_dp") = 2, py::arg("quantity_round_dp") = 2,
              py::arg("data_label") = nullopt)
@@ -386,12 +390,13 @@ PYBIND11_MODULE(_yabte_backtest_lib, m) {
         .def(py::init([](pybind11::object py_table, const AssetVector &assets,
                          const StrategyVector &strategies,
                          const BookVector &books) {
-
             auto status = arrow::py::unwrap_table(py_table.ptr());
 
             if (!status.ok()) {
                 throw std::runtime_error(
-                    "Error converting pyarrow table to arrow table (constructor): " + status.status().ToString());
+                    "Error converting pyarrow table to arrow table "
+                    "(constructor): " +
+                    status.status().ToString());
             }
             std::shared_ptr<arrow::Table> data = status.ValueOrDie();
 

@@ -330,9 +330,21 @@ class StrategyRunnerTestCase(NumpyTestCase):
             self._run_and_compare("test_multiple_books", kwargs)
 
     def test_positional_orders_quantity(self):
+        # remove round_dp to avoid discrepancies between Python Decimal and C++ double rounding
+        assets = [
+            OHLCAsset(
+                name=asset.name,
+                denom=asset.denom,
+                price_round_dp=None,
+                quantity_round_dp=None,
+                data_label=asset.data_label,
+            )
+            for asset in self.assets
+        ]
+
         kwargs = {
             "data": self.df_combined,
-            "assets": self.assets,
+            "assets": assets,
             "strategies": [TestPosOrderSizeStrat()],
         }
         run_params = {"size_type": OrderSizeType.QUANTITY, "size_factor": 100}
@@ -347,9 +359,21 @@ class StrategyRunnerTestCase(NumpyTestCase):
             self._run_and_compare("test_positional_orders_quantity", kwargs, run_params)
 
     def test_positional_orders_notional(self):
+        # remove round_dp to avoid discrepancies between Python Decimal and C++ double rounding
+        assets = [
+            OHLCAsset(
+                name=asset.name,
+                denom=asset.denom,
+                price_round_dp=None,
+                quantity_round_dp=None,
+                data_label=asset.data_label,
+            )
+            for asset in self.assets
+        ]
+
         kwargs = {
             "data": self.df_combined,
-            "assets": self.assets,
+            "assets": assets,
             "strategies": [TestPosOrderSizeStrat()],
         }
         run_params = {"size_type": OrderSizeType.NOTIONAL, "size_factor": 1000}

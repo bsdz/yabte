@@ -43,13 +43,14 @@ class Asset {
 
     string name_;
     string denom_;
-    int price_round_dp_;
-    int quantity_round_dp_;
+    optional<int> price_round_dp_;
+    optional<int> quantity_round_dp_;
     string data_label_;
 
    protected:
-    Asset(const string &name, const string &denom, const int price_round_dp = 2,
-          const int quantity_round_dp = 2,
+    Asset(const string &name, const string &denom,
+          const optional<int> &price_round_dp = 2,
+          const optional<int> &quantity_round_dp = 2,
           const optional<string> &data_label = nullopt);
 };
 
@@ -59,7 +60,8 @@ using AssetVector = vector<shared_ptr<Asset>>;
 class OHLCAsset : public Asset {
    public:
     OHLCAsset(const string &name, const string &denom,
-              const int price_round_dp = 2, const int quantity_round_dp = 2,
+              const optional<int> &price_round_dp = 2,
+              const optional<int> &quantity_round_dp = 2,
               const optional<string> &data_label = nullopt);
 
     shared_ptr<Asset> clone() const override;

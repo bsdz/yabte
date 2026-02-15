@@ -6,8 +6,9 @@
 
 #include <chrono>
 #include <cmath>
+#include <optional>
 
-using std::pow, std::round;
+using std::pow, std::round, std::optional, std::nullopt;
 
 using Timestamp = std::chrono::system_clock::time_point;
 
@@ -21,28 +22,29 @@ DayData = map<string, variant<string, double>>
 */
 using DayData = arrow::Table;
 
-inline double round_n_digits(const double &value, const int &n) {
-    if (n == 0) return std::round(value);
-    
-    // Python 3's round() uses "round half to even"
-    double p = std::pow(10.0, n);
-    double val_scaled = value * p;
-    
-    // Check if exactly half (e.g. 0.5, 1.5, 2.5)
-    // To do this robustly with floating point, check if difference from nearest integer is 0.5
-    double floor_val = std::floor(val_scaled);
-    double diff = val_scaled - floor_val;
-    
-    // Using a small epsilon for float comparison
-    if (std::abs(diff - 0.5) < 1e-15) {
-        // Round to nearest even integer
-        // If floor is even, round down (keep floor). If floor is odd, round up (floor + 1)
-        if (std::fmod(floor_val, 2.0) == 0.0) {
-            return floor_val / p;
-        } else {
-            return (floor_val + 1.0) / p;
-        }
+inline double round_dp(const double &value, const optional<int> &dp = nullopt) {
+    if (!dp.has_value()) {
+        return value;
     }
-    
-    return std::round(val_scaled) / p;
+    double multiplier = std::pow(10.0, dp.value());
+    double x = value * multiplier;
+    double fl = std::floor(x);
+    double ce = std::ceil(x);
+
+    double diff_fl = x - fl;
+    double diff_ce = ce - x;
+
+    double result;
+    // TODO: use a small epsilon for float comparison to catch cases like
+    // 6246.500000000000003
+    if (diff_fl < diff_ce) {
+        result = fl;
+    } else if (diff_ce < diff_fl) {
+        result = ce;
+    } else {
+        // It's exactly halfway (0.5), use the even rule
+        result = (std::fmod(fl, 2.0) == 0) ? fl : ce;
+    }
+
+    return result / multiplier;
 }
