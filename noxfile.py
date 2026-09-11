@@ -2,7 +2,7 @@ import nox
 from dependency_groups import resolve
 
 nox.options.reuse_existing_virtualenvs = True
-nox.options.sessions = ["do-lint", "build-cpp(debug)", "test-3.13(debug)"]
+nox.options.sessions = ["do-lint", "build-cpp(debug)", "test-3.14(debug)"]
 
 # Path to a locally built pyarrow wheel, or None to install from PyPI
 pyarrow_wheel_path = None
@@ -56,7 +56,7 @@ def check_lint(session):
     )
 
 
-@nox.session(python=["3.13"])
+@nox.session(python=["3.14"])
 @nox.parametrize("build_type", ["Debug", "Release"], ids=["debug", "release"])
 def test(session, build_type):
     session.install("-e", ".")

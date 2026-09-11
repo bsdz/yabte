@@ -515,7 +515,8 @@ PYBIND11_MODULE(_yabte_backtest_lib, m) {
             "asset_map", [](const Strategy &s) { return s.asset_map_.get(); })
         .def_property_readonly(
             "orders", [](const Strategy &s) { return s.orders_.get(); })
-        .def_readonly("params", &Strategy::params_);
+        .def_readonly("params", &Strategy::params_)
+        .def_readonly("current_idx", &Strategy::current_idx_);
 
     py::class_<SMAXOStrategy, Strategy, shared_ptr<SMAXOStrategy>>(m, "SMAXOStrategy")
         .def(py::init<std::string, int, int>(),

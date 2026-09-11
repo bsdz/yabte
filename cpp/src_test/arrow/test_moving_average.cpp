@@ -4,7 +4,6 @@
 #include "YABTE/Utilities/Arrow/TableHelpers.hpp"
 
 #include <vector>
-#include <cmath>
 
 using namespace YABTE::Utilities::Arrow;
 
@@ -57,19 +56,12 @@ TEST(ArrowTest, ComputeMovingAverage_InsufficientData) {
 
     ASSERT_EQ(ma_array->length(), 2);
     auto double_array = std::dynamic_pointer_cast<arrow::DoubleArray>(ma_array->chunk(0));
-    
-    // Should be all NaNs/Nulls
-    // My implementation puts NaNs, which Arrow treats as value if not explicitly null, 
-    // BUT I used AppendValues with NaNs. 
-    // Wait, Arrow's DoubleBuilder doesn't automatically treat NaN as null unless validity bitmap is set.
-    // In my code:
-    // for(size_t i=0; i<data.size(); ++i) ma.push_back(std::nan(""));
-    // ...
-    // dbl_builder.AppendValues(ma.data(), ma.size())
-    // So they will be valid doubles with value NaN.
-    
-    ASSERT_TRUE(std::isnan(double_array->Value(0)));
-    ASSERT_TRUE(std::isnan(double_array->Value(1)));
+
+    // Fewer rows than the window: every slot is in the warmup region, which
+    // the implementation represents as null (not a NaN value).
+    ASSERT_EQ(double_array->null_count(), 2);
+    ASSERT_TRUE(double_array->IsNull(0));
+    ASSERT_TRUE(double_array->IsNull(1));
 }
 
 TEST(ArrowTest, ComputeMovingAverage_ExactSize) {
@@ -90,7 +82,8 @@ TEST(ArrowTest, ComputeMovingAverage_ExactSize) {
     ASSERT_EQ(ma_array->length(), 3);
     auto double_array = std::dynamic_pointer_cast<arrow::DoubleArray>(ma_array->chunk(0));
     
-    ASSERT_TRUE(std::isnan(double_array->Value(0))); // Index 0 (n-3)
-    ASSERT_TRUE(std::isnan(double_array->Value(1))); // Index 1 (n-2)
-    EXPECT_DOUBLE_EQ(double_array->Value(2), 2.0);   // Index 2 (n-1) -> Average
+    ASSERT_TRUE(double_array->IsNull(0));           // warmup
+    ASSERT_TRUE(double_array->IsNull(1));           // warmup
+    ASSERT_FALSE(double_array->IsNull(2));
+    EXPECT_DOUBLE_EQ(double_array->Value(2), 2.0);  // (1+2+3)/3
 }

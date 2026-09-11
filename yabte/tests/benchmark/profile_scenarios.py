@@ -1,13 +1,15 @@
-import time
-import pandas as pd
-import numpy as np
-import logging
 import cProfile
-import pstats
 import io
+import logging
+import pstats
+import time
+
+import numpy as np
+import pandas as pd
+
 from yabte.backtest.asset import OHLCAsset
-from yabte.backtest.strategy import Strategy
 from yabte.backtest.order import SimpleOrder
+from yabte.backtest.strategy import Strategy
 from yabte.backtest.strategyrunner import StrategyRunner
 from yabte.utilities.simulation.geometric_brownian_motion import gbm_simulate_paths
 
@@ -15,8 +17,8 @@ from yabte.utilities.simulation.geometric_brownian_motion import gbm_simulate_pa
 logging.basicConfig(level=logging.WARNING)
 
 try:
-    from yabte.backtest._yabte_backtest_lib import SMAXOStrategy as CppSMAXOStrategy
     import yabte.backtest._yabte_backtest_lib as cpp_lib
+    from yabte.backtest._yabte_backtest_lib import SMAXOStrategy as CppSMAXOStrategy
 
     print(f"DEBUG: Loaded C++ extension from {cpp_lib.__file__}")
 
@@ -117,8 +119,8 @@ class Profiler:
 
 
 def print_comparison_table(results):
-    """
-    Prints a comparison table of timings.
+    """Prints a comparison table of timings.
+
     results: dict of {scenario_name: {label: duration}}
     """
     if not results:

@@ -17,6 +17,30 @@ inline Timestamp timestamp_from_ns(const arrow::TimestampType::c_type &ns) {
         std::chrono::nanoseconds(ns));
 }
 
+// Arrow timestamp columns carry their own resolution, and pandas picks one
+// based on version (>=3 defaults DatetimeIndex to us, <3 used ns). Scale the
+// raw value by the column's unit rather than assuming nanoseconds.
+inline Timestamp timestamp_from_unit(const arrow::TimestampType::c_type &value,
+                                     const arrow::TimeUnit::type &unit) {
+    switch (unit) {
+        case arrow::TimeUnit::SECOND:
+            return std::chrono::time_point<std::chrono::system_clock>(
+                std::chrono::duration_cast<std::chrono::system_clock::duration>(
+                    std::chrono::seconds(value)));
+        case arrow::TimeUnit::MILLI:
+            return std::chrono::time_point<std::chrono::system_clock>(
+                std::chrono::duration_cast<std::chrono::system_clock::duration>(
+                    std::chrono::milliseconds(value)));
+        case arrow::TimeUnit::MICRO:
+            return std::chrono::time_point<std::chrono::system_clock>(
+                std::chrono::duration_cast<std::chrono::system_clock::duration>(
+                    std::chrono::microseconds(value)));
+        case arrow::TimeUnit::NANO:
+        default:
+            return timestamp_from_ns(value);
+    }
+}
+
 /* ideally DayData would be a map like
 DayData = map<string, variant<string, double>>
 */

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "YABTE/BackTest/Strategy.hpp"
@@ -18,7 +19,7 @@ using YABTE::BackTest::AssetDataFieldInfo, YABTE::BackTest::SimpleOrder,
 
 using YABTE::Utilities::Arrow::ComputeMovingAverage;
 
-using std::shared_ptr, std::vector;
+using std::optional, std::shared_ptr, std::vector;
 
 shared_ptr<Table> MyExtendTable(const shared_ptr<const Table>& table, int n,
                                 int m) {
@@ -56,35 +57,46 @@ void TestSMAXOStrat::on_open() {
     auto fields = asset->_get_fields(AssetDataFieldInfo::AVAILABLE_AT_OPEN);
 }
 
-void TestSMAXOStrat::on_close() {
-    auto asset = (*this->asset_map_)["GOOG"];
+namespace {
+// Null-aware scalar read from a (possibly multi-chunk) double column.
+optional<double> value_at(const shared_ptr<ChunkedArray>& arr, int64_t i) {
+    int64_t offset = 0;
+    for (const auto& chunk : arr->chunks()) {
+        if (i < offset + chunk->length()) {
+            auto d = std::static_pointer_cast<arrow::DoubleArray>(chunk);
+            auto local = i - offset;
+            if (d->IsNull(local)) return std::nullopt;
+            return d->Value(local);
+        }
+        offset += chunk->length();
+    }
+    return std::nullopt;
+}
+}  // namespace
 
+void TestSMAXOStrat::on_close() {
     auto n = std::get<int>(this->params_.at("n"));
     auto m = std::get<int>(this->params_.at("m"));
 
-    auto nrows = this->data_->num_rows();
+    // data_ is the full table; the engine tracks position via current_idx_.
+    auto idx = this->current_idx_;
 
     DLOG(INFO) << "on_close";
-    if (nrows >= std::max(n, m) + 2) {
-        auto s_short =
-            this->data_->GetColumnByName("('GOOG', 'CloseSMAShort')");
-        auto s_long = this->data_->GetColumnByName("('GOOG', 'CloseSMALong')");
+    if (idx < std::max(n, m) + 1) return;
 
-        std::vector<optional<double>> v_short{
-            arrow::stl::End<arrow::DoubleType>(*s_short) - 2,
-            arrow::stl::End<arrow::DoubleType>(*s_short)};
-        std::vector<optional<double>> v_long{
-            arrow::stl::End<arrow::DoubleType>(*s_long) - 2,
-            arrow::stl::End<arrow::DoubleType>(*s_long)};
+    auto s_short = this->data_->GetColumnByName("('GOOG', 'CloseSMAShort')");
+    auto s_long = this->data_->GetColumnByName("('GOOG', 'CloseSMALong')");
 
-        if (v_short[0].value() < v_long[0].value() &&
-            v_short[1].value() > v_long[1].value()) {
-            this->orders_->push_back(
-                std::make_shared<SimpleOrder>("GOOG", 100));
-        } else if (v_long[0].value() < v_short[0].value() &&
-                   v_long[1].value() > v_short[1].value()) {
-            this->orders_->push_back(
-                std::make_shared<SimpleOrder>("GOOG", -100));
-        }
+    auto short_prev = value_at(s_short, idx - 1);
+    auto short_curr = value_at(s_short, idx);
+    auto long_prev = value_at(s_long, idx - 1);
+    auto long_curr = value_at(s_long, idx);
+
+    if (!short_prev || !short_curr || !long_prev || !long_curr) return;
+
+    if (*short_prev < *long_prev && *short_curr > *long_curr) {
+        this->orders_->push_back(std::make_shared<SimpleOrder>("GOOG", 100));
+    } else if (*long_prev < *short_prev && *long_curr > *short_curr) {
+        this->orders_->push_back(std::make_shared<SimpleOrder>("GOOG", -100));
     }
 }

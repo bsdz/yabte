@@ -392,58 +392,31 @@ class CppStrategyAdapter(yabte_cpp.Strategy if yabte_cpp else object):
                     f"WARNING: C++ Engine skipping unsupported order type: {type(py_ord)}"
                 )
 
+    def _set_window(self):
+        """Point the Python strategy at the engine's current timestep.
+
+        The C++ engine keeps the full table on ``self.data`` and tracks position
+        via ``current_idx``. The Python ``Strategy.data`` property already windows
+        lazily on ``self.ts`` (``self._data.loc[: self.ts]``), so all that's
+        needed to mirror ``PythonStrategyRunner`` is a correct ``_ts``. Reading
+        it from the pandas index is O(1) and avoids an Arrow round-trip.
+        """
+        idx = self.current_idx
+        if idx < 0:
+            return
+        self.python_strategy._set_ts(self.python_strategy._data.index[idx])
+
     def on_open(self):
-        # Update timestamp on Python strategy if C++ engine hasn't done it (which it hasn't)
-        # We need the current timestamp from the C++ engine to be consistent.
-        # However, `yabte_cpp` Strategy bindings don't expose a way to get the current processing TS easily
-        # unless we add it to the `Strategy` class in C++ and expose it.
-
-        # HACK: The C++ engine sets `strategy->data_` to a slice ending at current time.
-        # We can infer the timestamp from the last row of `self.data`.
-        # `self.data` is a wrapper around `self.data_` (Arrow Table) in C++?
-        # In `yabte_cpp.Strategy` binding:
-        # .def_property_readonly("data", [](const Strategy &s) -> py::handle { return arrow::py::wrap_table(s.data_); })
-        # So `self.data` returns a PyArrow table of the sliced data.
-
-        # Let's get the timestamp from the last row of the PyArrow table.
-        # Note: `self.data` here refers to the property on the C++ object (adapter base).
-        # We need to access it via `super().data` or similar if we were subclassing directly,
-        # but `CppStrategyAdapter` inherits from `yabte_cpp.Strategy`.
-
-        # Check if `self.data` (from C++ base) is available and not None/Empty
+        self._set_window()
+        self.python_strategy._mask_open = True
         try:
-            # self.data is a property of yabte_cpp.Strategy.
-            # It returns a pyarrow.Table.
-            current_data_slice = self.data
-            if current_data_slice and current_data_slice.num_rows > 0:
-                # Get last row's "Date" column
-                # Assuming "Date" is the timestamp column name we enforced.
-                date_col = current_data_slice["Date"]
-                current_ts = date_col[
-                    -1
-                ].as_py()  # Get last element as python datetime/timestamp
-
-                # Set it on the python strategy
-                self.python_strategy._ts = pd.Timestamp(current_ts)
-        except Exception as e:
-            # print(f"WARNING: Could not infer timestamp in on_open: {e}")
-            pass
-
-        self.python_strategy.on_open()
+            self.python_strategy.on_open()
+        finally:
+            self.python_strategy._mask_open = False
         self._sync_orders()
 
     def on_close(self):
-        # Same inference for on_close
-        try:
-            current_data_slice = self.data
-            if current_data_slice and current_data_slice.num_rows > 0:
-                date_col = current_data_slice["Date"]
-                current_ts = date_col[-1].as_py()
-                self.python_strategy._ts = pd.Timestamp(current_ts)
-        except Exception as e:
-            # print(f"WARNING: Could not infer timestamp in on_close: {e}")
-            pass
-
+        self._set_window()
         self.python_strategy.on_close()
         self._sync_orders()
 

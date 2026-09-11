@@ -85,17 +85,14 @@ Result<shared_ptr<ChunkedArray>> ComputeMovingAverage(
     ::arrow::DoubleBuilder dbl_builder;
     ARROW_RETURN_NOT_OK(dbl_builder.Reserve(ma.size()));
 
-    // Create a validity bitmap or append manually checking for NaN
-    // Since we want O(N), we can iterate and append. 
-    // DoubleBuilder::AppendValues with validity bitmap is faster but requires creating the bitmap first.
-    
-    // Let's create validity bitmap manually
-    std::vector<uint8_t> valid_bytes(ma.size());
-    for(size_t i=0; i<ma.size(); ++i) {
-        valid_bytes[i] = std::isnan(ma[i]) ? 0 : 1;
+    // Use loop for safety instead of AppendValues with validity array
+    for (double val : ma) {
+        if (std::isnan(val)) {
+            ARROW_RETURN_NOT_OK(dbl_builder.AppendNull());
+        } else {
+            ARROW_RETURN_NOT_OK(dbl_builder.Append(val));
+        }
     }
-    
-    ARROW_RETURN_NOT_OK(dbl_builder.AppendValues(ma.data(), ma.size(), valid_bytes.data()));
     
     std::shared_ptr<::arrow::Array> ma_arr;
     ARROW_ASSIGN_OR_RAISE(ma_arr, dbl_builder.Finish());

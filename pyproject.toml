@@ -6,9 +6,9 @@ license-files = ["LICENSE*"]
 version = "0.5.0"
 readme = "README.md"
 authors = [{ name = "Blair Azzopardi", email = "blairuk@gmail.com" }]
-requires-python = '>=3.11,<3.14'
+requires-python = '>=3.12,<3.15'
 dependencies = [
-    'pandas (>=2.2.3,<3.0.0)',
+    'pandas (>=2.2.3,<4.0.0)',
     'scipy (>=1.15.2,<2.0.0)',
     'pandas-stubs (>=2.2.3.250308,<3.0.0.0)',
     "pyarrow (>=23.0.0,<24.0.0)",
@@ -27,7 +27,7 @@ dev = [
     "docformatter>=1.7.0,<2.0.0",
     "coverage>=7.8.2,<8.0.0",
     "nox>=2025.5.1,<2026.0.0",
-    "pytest>=8.0.0,<9.0.0",
+    "pytest>=8.0.0,<10.0.0",
     "setuptools>=69.0.3,<70.0.0",
 ]
 notebooks = [
@@ -53,10 +53,13 @@ profile = "black"
 module = "plotly.*,scipy.*,matplotlib.*"
 ignore_missing_imports = true
 
-
-[tool.setuptools]
-py-modules = ["yabte"]
-
 [tool.poetry.group.dev.dependencies]
 ipython = "^9.10.0"
 
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["yabte*"]
+namespaces = true

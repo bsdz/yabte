@@ -4,6 +4,7 @@
 #include <pybind11/pybind11.h>
 
 #include <filesystem>
+#include <iostream>
 #include <memory>
 #include <vector>
 
@@ -58,6 +59,11 @@ void test_runner_01(bool& success) {
         ParamMap pm;
         pm = {{"n", 10}, {"m", 20}};
         auto srr = sr.run(pm);
+        // gtest failures raised inside a death-test child are not relayed
+        // to the parent, so report the counts explicitly.
+        std::cerr << "orders_unprocessed=" << srr.orders_unprocessed_->size()
+                  << " orders_processed=" << srr.orders_processed_.size()
+                  << std::endl;
         ASSERT_EQ(srr.orders_unprocessed_->size(), 0);
         ASSERT_EQ(srr.orders_processed_.size(), 71);
     }));
@@ -72,16 +78,31 @@ TEST(RunnerTest, RunSmokeTest) {
     GTEST_FLAG_SET(death_test_style, "threadsafe");
     EXPECT_EXIT(
         {
-            // Initialize interpreter inside the forked process as well
+            // Initialize interpreter inside the forked process as well.
+            // Note: this binary links Conan's static Arrow, so compute
+            // functions are registered via arrow::compute::Initialize();
+            // importing pyarrow here would load a second, unrelated Arrow.
             py::scoped_interpreter guard{};
-            py::module_::import("pyarrow");
 
-            // Explicitly initialize Arrow Compute to register all functions
-            arrow::compute::Initialize();
+            // Any exception must be handled *inside* the interpreter's
+            // scope: if a py::error_already_set escapes, gtest calls
+            // .what() after Py_Finalize and segfaults acquiring the GIL.
+            try {
+                // Explicitly initialize Arrow Compute to register all functions
+                auto st = arrow::compute::Initialize();
+                if (!st.ok()) {
+                    std::cerr << "arrow::compute::Initialize failed: " << st
+                              << std::endl;
+                    exit(1);
+                }
 
-            bool success = false;
-            test_runner_01(success);
-            if (!success) {
+                bool success = false;
+                test_runner_01(success);
+                if (!success) {
+                    exit(1);
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "RunSmokeTest failed: " << e.what() << std::endl;
                 exit(1);
             }
             exit(0);

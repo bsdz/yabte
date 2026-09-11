@@ -60,6 +60,10 @@ target_include_directories(
 # PUBLIC PYBIND11_NO_ASSERT_GIL_HELD_INCREF_DECREF
 # )
 
+if(CMAKE_BUILD_TYPE MATCHES "Debug")
+  target_compile_definitions(${YABTE_OBJS} PRIVATE YABTE_ENABLE_PROFILING)
+endif()
+
 # yabte library static & shared
 #
 set(YABTE_LIB_STATIC yabte_lib_static)
