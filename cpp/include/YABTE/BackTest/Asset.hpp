@@ -32,6 +32,15 @@ class Asset {
     virtual shared_ptr<Asset> clone() const = 0;
 
     double round_quantity(const double &quantity) const;
+    
+    // New efficient methods that take full table and index
+    virtual double intraday_traded_price(
+        const std::shared_ptr<arrow::Table>& data, int64_t idx,
+        const optional<double> size = nullopt) const;
+    virtual double end_of_day_price(
+        const std::shared_ptr<arrow::Table>& data, int64_t idx) const;
+
+    // Old methods (kept pure virtual for backward compatibility with existing subclasses)
     virtual double intraday_traded_price(
         const DayData &asset_day_data,
         const optional<double> size = nullopt) const = 0;
@@ -70,6 +79,22 @@ class OHLCAsset : public Asset {
         const DayData &asset_day_data,
         const optional<double> size = nullopt) const override;
     double end_of_day_price(const DayData &asset_day_data) const override;
+    
+    // Efficient overrides
+    double intraday_traded_price(
+        const std::shared_ptr<arrow::Table>& data, int64_t idx,
+        const optional<double> size = nullopt) const override;
+    double end_of_day_price(
+        const std::shared_ptr<arrow::Table>& data, int64_t idx) const override;
+
     vector<tuple<string, AssetDataFieldInfo>> data_fields() const override;
+
+   private:
+    mutable int idx_open_ = -1;
+    mutable int idx_high_ = -1;
+    mutable int idx_low_ = -1;
+    mutable int idx_close_ = -1;
+    mutable int idx_volume_ = -1;
+    mutable bool indices_initialized_ = false;
 };
 }  // namespace YABTE::BackTest

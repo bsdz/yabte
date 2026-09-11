@@ -22,6 +22,7 @@ class PositionalOrder : public SimpleOrder {
 
     void apply(const Timestamp &ts, const DayData &day_data,
                const AssetMap &asset_map) override;
-};
 
+    void apply(const Timestamp &ts, const std::shared_ptr<arrow::Table>& data, int64_t idx, const AssetMap &asset_map) override;
+};
 }  // namespace YABTE::BackTest

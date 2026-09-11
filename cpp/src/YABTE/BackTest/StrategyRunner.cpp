@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <utility>
 #include <iostream>
+#include <chrono>
 
 #include "YABTE/Utilities/Arrow/TableHelpers.hpp"
 #ifdef EXPER_PY_SUB_INTERP
@@ -56,6 +57,8 @@ StrategyRunnerResult StrategyRunner::run(const ParamMap& params) {
 
     // std::cout << "DEBUG: Running strategy runner" << std::endl;
     StrategyRunnerResult result;
+    
+    auto start_init = std::chrono::high_resolution_clock::now();
 
     // copy books and stategies (assets are immutable but copy anyway)
     // std::cout << "DEBUG: Cloning strategies..." << std::endl;
@@ -95,6 +98,10 @@ StrategyRunnerResult StrategyRunner::run(const ParamMap& params) {
 
     std::unordered_map<shared_ptr<Strategy>, shared_ptr<const Table>> data_map;
 
+    double time_extend_data_total = 0;
+    double time_extend_table_total = 0;
+    double time_strategy_init_total = 0;
+
     // init
     // std::cout << "DEBUG: Initializing strategies..." << std::endl;
     for (auto& strategy : result.strategies_) {
@@ -106,23 +113,34 @@ StrategyRunnerResult StrategyRunner::run(const ParamMap& params) {
 
         // merge tables here (using pointers to avoid copying data)
         // std::cout << "DEBUG: Calling extend_data..." << std::endl;
+        auto t_start_extend_data = std::chrono::high_resolution_clock::now();
         auto new_data = strategy->extend_data(this->data_);
+        auto t_end_extend_data = std::chrono::high_resolution_clock::now();
+        time_extend_data_total += std::chrono::duration<double>(t_end_extend_data - t_start_extend_data).count();
         // std::cout << "DEBUG: extend_data returned." << std::endl;
 
         if (new_data) {
             // std::cout << "DEBUG: Extending data..." << std::endl;
+            auto t_start_extend_table = std::chrono::high_resolution_clock::now();
             auto st_et = ExtendTable(this->data_, new_data);
             CHECK(st_et.ok()) << "Error: " << st_et.status();
             data_map.insert(std::make_pair(
                 strategy, dynamic_pointer_cast<Table>(st_et.ValueOrDie())));
+            auto t_end_extend_table = std::chrono::high_resolution_clock::now();
+            time_extend_table_total += std::chrono::duration<double>(t_end_extend_table - t_start_extend_table).count();
         } else {
             // std::cout << "DEBUG: Not extending data..." << std::endl;
             data_map.insert(std::make_pair(strategy, this->data_));
         }
 
+        strategy->data_ = data_map[strategy];
+
         // run strategy's init
         // std::cout << "DEBUG: Calling strategy->init()..." << std::endl;
+        auto t_start_strategy_init = std::chrono::high_resolution_clock::now();
         strategy->init();
+        auto t_end_strategy_init = std::chrono::high_resolution_clock::now();
+        time_strategy_init_total += std::chrono::duration<double>(t_end_strategy_init - t_start_strategy_init).count();
         // std::cout << "DEBUG: strategy->init() completed." << std::endl;
     }
 
@@ -133,6 +151,15 @@ StrategyRunnerResult StrategyRunner::run(const ParamMap& params) {
         throw std::runtime_error("Date column is not TIMESTAMP type");
     }
 
+    auto end_init = std::chrono::high_resolution_clock::now();
+    double time_init = std::chrono::duration<double>(end_init - start_init).count();
+
+    auto start_loop = std::chrono::high_resolution_clock::now();
+    double time_on_open = 0;
+    double time_orders = 0;
+    double time_on_close = 0;
+    double time_eod = 0;
+    
     int64_t i = 0;
     for (const auto& chunk : calendar->chunks()) {
         auto ts_array = std::static_pointer_cast<arrow::TimestampArray>(chunk);
@@ -148,23 +175,27 @@ StrategyRunnerResult StrategyRunner::run(const ParamMap& params) {
             //           << std::endl;
 
             auto ts_chrono = timestamp_from_ns(ts_val);
-        auto day_data = this->data_->Slice(i, 1);
+        // auto day_data = this->data_->Slice(i, 1);
         // std::cout << "DEBUG: Sliced day_data" << std::endl;
 
         vector<shared_ptr<Order>> orders_next_ts;
 
         // open
         // std::cout << "DEBUG: Calling on_open for strategies..." << std::endl;
+        auto t0 = std::chrono::high_resolution_clock::now();
         for (auto& strategy : result.strategies_) {
             // TODO: mask out non-open available data
-            strategy->data_ = data_map[strategy]->Slice(0, i + 1);
+            strategy->current_idx_ = i;
             // std::cout << "DEBUG: Sliced strategy data for on_open" << std::endl;
             strategy->on_open();
             // std::cout << "DEBUG: on_open done for a strategy" << std::endl;
         }
+        auto t1 = std::chrono::high_resolution_clock::now();
+        time_on_open += std::chrono::duration<double>(t1 - t0).count();
 
         // process orders
         // std::cout << "DEBUG: Processing orders..." << std::endl;
+        t0 = std::chrono::high_resolution_clock::now();
         if (!result.orders_unprocessed_->empty()) {
             std::stable_sort(result.orders_unprocessed_->begin(),
                              result.orders_unprocessed_->end(),
@@ -189,7 +220,8 @@ StrategyRunnerResult StrategyRunner::run(const ParamMap& params) {
             }
 
             // std::cout << "DEBUG: Applying order..." << std::endl;
-            order->apply(ts_chrono, *day_data, *asset_map);
+            // Efficient call avoiding slice
+            order->apply(ts_chrono, this->data_, i, *asset_map);
 
             // add any child orders to next ts
             orders_next_ts.insert(orders_next_ts.end(),
@@ -203,22 +235,47 @@ StrategyRunnerResult StrategyRunner::run(const ParamMap& params) {
         result.orders_unprocessed_->insert(result.orders_unprocessed_->end(),
                                            orders_next_ts.begin(),
                                            orders_next_ts.end());
+        t1 = std::chrono::high_resolution_clock::now();
+        time_orders += std::chrono::duration<double>(t1 - t0).count();
 
         // close
         // std::cout << "DEBUG: Calling on_close for strategies..." << std::endl;
+        t0 = std::chrono::high_resolution_clock::now();
         for (auto& strategy : result.strategies_) {
             strategy->on_close();
             // std::cout << "DEBUG: on_close done for a strategy" << std::endl;
         }
+        t1 = std::chrono::high_resolution_clock::now();
+        time_on_close += std::chrono::duration<double>(t1 - t0).count();
 
         // run book end-of-day tasks
         // std::cout << "DEBUG: Running book EOD tasks..." << std::endl;
+        t0 = std::chrono::high_resolution_clock::now();
         for (auto& book : result.books_) {
-            book->eod_tasks(ts_chrono, *day_data, *asset_map);
+            // Efficient call avoiding slice
+            book->eod_tasks(ts_chrono, this->data_, i, *asset_map);
         }
+        t1 = std::chrono::high_resolution_clock::now();
+        time_eod += std::chrono::duration<double>(t1 - t0).count();
         // std::cout << "DEBUG: Finished row " << i << std::endl;
     }
     }
+
+    auto end_loop = std::chrono::high_resolution_clock::now();
+    double total_time = std::chrono::duration<double>(end_loop - start_loop).count();
+    
+    std::cout << "\n=== C++ Profiling Results ===" << std::endl;
+    std::cout << "Initialization:  " << time_init << " s" << std::endl;
+    std::cout << "  - extend_data:   " << time_extend_data_total << " s (" << (time_extend_data_total/time_init)*100 << "%)" << std::endl;
+    std::cout << "  - ExtendTable:   " << time_extend_table_total << " s (" << (time_extend_table_total/time_init)*100 << "%)" << std::endl;
+    std::cout << "  - strategy->init:" << time_strategy_init_total << " s (" << (time_strategy_init_total/time_init)*100 << "%)" << std::endl;
+    std::cout << "Total Loop Time: " << total_time << " s" << std::endl;
+    std::cout << "on_open:         " << time_on_open << " s (" << (time_on_open/total_time)*100 << "%)" << std::endl;
+    std::cout << "Orders:          " << time_orders << " s (" << (time_orders/total_time)*100 << "%)" << std::endl;
+    std::cout << "on_close:        " << time_on_close << " s (" << (time_on_close/total_time)*100 << "%)" << std::endl;
+    std::cout << "EOD Tasks:       " << time_eod << " s (" << (time_eod/total_time)*100 << "%)" << std::endl;
+    std::cout << "Overhead/Other:  " << (total_time - time_on_open - time_orders - time_on_close - time_eod) << " s" << std::endl;
+    std::cout << "=============================\n" << std::endl;
 
     // std::cout << "DEBUG: Finished running strategy runner" << std::endl;
     return result;

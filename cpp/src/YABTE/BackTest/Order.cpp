@@ -30,6 +30,11 @@ void Order::_book_trades(const vector<shared_ptr<Trade>> trades) {
 
 void Order::post_complete(const vector<shared_ptr<Trade>> trades) {}
 
+void Order::apply(const Timestamp &ts, const std::shared_ptr<arrow::Table>& data, int64_t idx, const AssetMap &asset_map) {
+    auto day_data = data->Slice(idx, 1);
+    this->apply(ts, *day_data, asset_map);
+}
+
 SimpleOrder::SimpleOrder(const string& asset_name, const double& size,
                          const OrderSizeType& size_type,
                          const optional<string>& book_name,
@@ -46,6 +51,27 @@ tuple<double, double> SimpleOrder::_calc_quantity_price(
     auto asset_day_data = asset->_filter_data(day_data);
     auto trade_price =
         asset->intraday_traded_price(*asset_day_data, this->size_);
+
+    if (this->size_type_ == OrderSizeType::QUANTITY)
+        return {asset->round_quantity(this->size_), trade_price};
+    else if (this->size_type_ == OrderSizeType::NOTIONAL)
+        return {asset->round_quantity(this->size_ / trade_price), trade_price};
+    else if (this->size_type_ == OrderSizeType::BOOK_PERCENT) {
+        // Use total_value instead of cash_ for BOOK_PERCENT
+        return {asset->round_quantity(this->book_->cash_ * this->size_ / 100 /
+                                      trade_price),
+                trade_price};
+    }     else
+        throw runtime_error("Unsupported size type");
+}
+
+tuple<double, double> SimpleOrder::_calc_quantity_price(
+    const std::shared_ptr<arrow::Table>& data, int64_t idx,
+    const AssetMap &asset_map) const {
+    auto asset = asset_map.at(this->asset_name_);
+    // Use new efficient API on Asset
+    auto trade_price =
+        asset->intraday_traded_price(data, idx, this->size_);
 
     if (this->size_type_ == OrderSizeType::QUANTITY)
         return {asset->round_quantity(this->size_), trade_price};
@@ -86,6 +112,27 @@ void SimpleOrder::apply(const Timestamp& ts, const DayData& day_data,
                                         this->asset_name_, this->label_));
     this->_book_trades(trades);
 }
+
+void SimpleOrder::apply(const Timestamp &ts, const std::shared_ptr<arrow::Table>& data, int64_t idx, const AssetMap &asset_map) {
+    if (!this->book_) {
+        throw runtime_error("Book not found");
+    }
+
+    auto [trade_quantity, trade_price] =
+        this->_calc_quantity_price(data, idx, asset_map);
+
+    auto new_status = this->pre_execute_check(ts, trade_price);
+    if (new_status) {
+        this->status_ = *new_status;
+        return;
+    }
+
+    vector<shared_ptr<Trade>> trades;
+    trades.push_back(make_shared<Trade>(ts, trade_quantity, trade_price,
+                                        this->asset_name_, this->label_));
+    this->_book_trades(trades);
+}
+
 
 shared_ptr<Order> SimpleOrder::clone() const {
     return make_shared<SimpleOrder>(*this);

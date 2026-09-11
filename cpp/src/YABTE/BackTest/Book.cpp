@@ -78,6 +78,37 @@ void Book::eod_tasks(const Timestamp& ts, const DayData& day_data,
     this->_history_.push_back({ts, this->cash_, mtm, this->total_value_});
 }
 
+void Book::eod_tasks(const Timestamp& ts, const std::shared_ptr<arrow::Table>& data, int64_t idx,
+                     const AssetMap& asset_map) {
+    // Run end of day tasks such as book keeping."""
+    // accumulate continously compounded interest
+
+    auto interest = round_dp(this->cash_ * (std::exp(this->rate_) - 1),
+                             this->interest_round_dp_);
+    
+    // TODO: formatting of cash value in description string
+    if (this->rate_ != 0 && interest != 0) {
+        auto cash_trans = CashTransaction(
+            ts, interest, "interest payment on cash");
+        const TransactionVector trans = {make_shared<CashTransaction>(cash_trans)};
+        this->add_transactions(trans);
+    }
+
+    auto mtm = 0.0;
+    for (const auto& [an, q] : this->positions_) {
+        if (q == 0) continue;
+        if (auto asset = asset_map.at(an); asset != nullptr) {
+            // New efficient API
+            mtm += asset->end_of_day_price(data, idx) * q;
+        }
+    }
+
+    // Update cached total value for next day's orders
+    this->total_value_ = this->cash_ + mtm;
+
+    this->_history_.push_back({ts, this->cash_, mtm, this->total_value_});
+}
+
 shared_ptr<Table> Book::history() const {
     shared_ptr<Table> table;
     vector<std::string> names = {"ts", "cash", "mtm", "total"};

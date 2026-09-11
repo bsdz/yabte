@@ -1,68 +1,106 @@
 #include "YABTE/Utilities/Arrow/TableHelpers.hpp"
 
 #include <arrow/builder.h>
-#include <arrow/compute/api.h>
-#include <arrow/compute/function.h>
-#include <arrow/compute/registry.h>
-
 #include <arrow/json/reader.h>
-#include <glog/logging.h>
+#include <arrow/io/file.h>
 #include <parquet/arrow/reader.h>
-
 #include <cmath>
+#include <vector>
 #include <ranges>
 
-using std::dynamic_pointer_cast, std::exception, std::shared_ptr, std::vector,
-    std::views::iota, std::string_literals::operator""s, std::make_shared,
-    std::string;
+using namespace std;
 
 namespace YABTE::Utilities::Arrow {
 
 Result<shared_ptr<Table>> LoadTable(string path) {
-    arrow::MemoryPool* pool = arrow::default_memory_pool();
-    shared_ptr<arrow::io::RandomAccessFile> input;
-    ARROW_ASSIGN_OR_RAISE(input, arrow::io::ReadableFile::Open(path));
+    shared_ptr<::arrow::io::ReadableFile> infile;
+    ARROW_ASSIGN_OR_RAISE(infile, ::arrow::io::ReadableFile::Open(path));
 
-    // Open Parquet file reader
-    std::unique_ptr<parquet::arrow::FileReader> arrow_reader;
-    
-#ifdef YABTE_USE_PYARROW_API
-    // PyArrow's C++ API (via wheel) sometimes has slightly different signatures or returns Result
-    // In this environment (pyarrow wheel headers), OpenFile returns Result<unique_ptr>
-    ARROW_ASSIGN_OR_RAISE(arrow_reader, parquet::arrow::OpenFile(input, pool));
-#else
-    // Standard Conan Arrow API (used by yabte_objs/yabte_lib_static)
-    // OpenFile returns Result<unique_ptr> in newer Arrow versions (>=15.0.0)
-    ARROW_ASSIGN_OR_RAISE(arrow_reader, parquet::arrow::OpenFile(input, pool));
-#endif
+    std::unique_ptr<::parquet::arrow::FileReader> reader;
+    ARROW_ASSIGN_OR_RAISE(reader, ::parquet::arrow::OpenFile(infile, ::arrow::default_memory_pool()));
 
-    // Read entire file as a single Arrow table
     shared_ptr<Table> table;
-    ARROW_RETURN_NOT_OK(arrow_reader->ReadTable(&table));
+    ARROW_RETURN_NOT_OK(reader->ReadTable(&table));
     return table;
 }
 
 Result<shared_ptr<ChunkedArray>> ComputeMovingAverage(
-    shared_ptr<ChunkedArray> vals, int n) {
-    // calculate moving average vector
-    vector<double> ma(n, std::nan(""));
 
-    // rows 0..9, 1..10, 2..11, ..., size-n-1..size-1
-    for (int x : iota(0, vals->length() - n)) {
-        auto slice = vals->Slice(x, n);
-        arrow::Datum sum;
-        ARROW_ASSIGN_OR_RAISE(sum, arrow::compute::Mean(slice));
-        ma.push_back(sum.scalar_as<arrow::DoubleScalar>().value);
+    shared_ptr<ChunkedArray> vals, int n) {
+    
+    if (vals->length() == 0) {
+        return vals;
     }
 
-    // convert vector to arrow array
-    shared_ptr<arrow::Array> ma_arr;
-    arrow::DoubleBuilder dbl_builder = arrow::DoubleBuilder();
+    // 1. Flatten ChunkedArray to a single vector for fast O(1) access
+    // This avoids overhead of handling chunks inside the tight loop
+    std::vector<double> data;
+    data.reserve(vals->length());
 
-    ARROW_RETURN_NOT_OK(dbl_builder.AppendValues(ma.begin(), ma.end()));
+    for (const auto& chunk : vals->chunks()) {
+        auto d_array = std::dynamic_pointer_cast<::arrow::DoubleArray>(chunk);
+        if (!d_array) {
+            return Status::Invalid("Input array must be of type Double for Moving Average");
+        }
+        
+        // Use raw_values for maximum speed
+        const double* values = d_array->raw_values();
+        // Handle nulls if necessary (here we assume strict doubles or treat null as NaN)
+        if (d_array->null_count() > 0) {
+            for(int64_t i=0; i<d_array->length(); ++i) {
+                if (d_array->IsNull(i)) data.push_back(std::nan(""));
+                else data.push_back(values[i]);
+            }
+        } else {
+             data.insert(data.end(), values, values + d_array->length());
+        }
+    }
+
+    // 2. O(N) Sliding Window Algorithm
+    std::vector<double> ma;
+    ma.reserve(data.size());
+
+    if (data.size() < n) {
+         for(size_t i=0; i<data.size(); ++i) ma.push_back(std::nan(""));
+    } else {
+        // Pad the initial n-1 elements with NaN
+        for(int i=0; i<n-1; ++i) ma.push_back(std::nan(""));
+
+        // Compute first window sum (indices 0 to n-1)
+        double sum = 0.0;
+        for(int i=0; i<n; ++i) {
+            sum += data[i]; 
+        }
+        ma.push_back(sum / n);
+
+        // Slide the window
+        for (size_t i = n; i < data.size(); ++i) {
+            sum -= data[i - n]; // Remove outgoing
+            sum += data[i];     // Add incoming
+            ma.push_back(sum / n);
+        }
+    }
+
+    // 3. Convert back to Arrow
+    ::arrow::DoubleBuilder dbl_builder;
+    ARROW_RETURN_NOT_OK(dbl_builder.Reserve(ma.size()));
+
+    // Create a validity bitmap or append manually checking for NaN
+    // Since we want O(N), we can iterate and append. 
+    // DoubleBuilder::AppendValues with validity bitmap is faster but requires creating the bitmap first.
+    
+    // Let's create validity bitmap manually
+    std::vector<uint8_t> valid_bytes(ma.size());
+    for(size_t i=0; i<ma.size(); ++i) {
+        valid_bytes[i] = std::isnan(ma[i]) ? 0 : 1;
+    }
+    
+    ARROW_RETURN_NOT_OK(dbl_builder.AppendValues(ma.data(), ma.size(), valid_bytes.data()));
+    
+    std::shared_ptr<::arrow::Array> ma_arr;
     ARROW_ASSIGN_OR_RAISE(ma_arr, dbl_builder.Finish());
 
-    return make_shared<ChunkedArray>(ma_arr);
+    return std::make_shared<::arrow::ChunkedArray>(ma_arr);
 }
 
 // NOTE: This function assumes the first column of both tables are identical.
@@ -74,15 +112,15 @@ Result<shared_ptr<Table>> ExtendTable(
     auto ext_schema = ext_table->schema();
     auto base_schema = base_table->schema();
 
-    shared_ptr<const arrow::KeyValueMetadata> base_schema_meta;
-    shared_ptr<const arrow::KeyValueMetadata> combined_meta;
+    shared_ptr<const ::arrow::KeyValueMetadata> base_schema_meta;
+    shared_ptr<const ::arrow::KeyValueMetadata> combined_meta;
     if (base_schema->HasMetadata() && ext_schema->HasMetadata()) {
         base_schema_meta = base_schema->metadata()->Copy();
         combined_meta = base_schema_meta->Merge(*ext_schema->metadata());
     }
 
     // Concatenate schema fields
-    arrow::FieldVector combined_fields{base_schema->fields()};
+    ::arrow::FieldVector combined_fields{base_schema->fields()};
     combined_fields.insert(combined_fields.end()
                            // do this if we assume the first col is identical
                            // ,++ext_schema->fields().cbegin()
@@ -91,7 +129,7 @@ Result<shared_ptr<Table>> ExtendTable(
                            ext_schema->fields().cend());
 
     // Concatenate table columns
-    arrow::ChunkedArrayVector combined_cols{base_table->columns()};
+    ::arrow::ChunkedArrayVector combined_cols{base_table->columns()};
     combined_cols.insert(combined_cols.end()
                          // do this if we assume the first col is identical
                          // ,++ext_table->columns().cbegin()
@@ -100,7 +138,7 @@ Result<shared_ptr<Table>> ExtendTable(
                          ext_table->columns().cend());
 
     // Construct new table from concatenated schema fields and table columns
-    return Table::Make(arrow::schema(combined_fields, combined_meta),
+    return Table::Make(::arrow::schema(combined_fields, combined_meta),
                        combined_cols);
 }
 
@@ -115,8 +153,8 @@ Result<shared_ptr<Table>> HorizConcatTables(
         return "('" + pf + "', '" + name + "')";
     };
 
-    arrow::ChunkedArrayVector combined_cols;
-    arrow::SchemaBuilder schema_builder;
+    ::arrow::ChunkedArrayVector combined_cols;
+    ::arrow::SchemaBuilder schema_builder;
     for (auto const& [pf, table] : std::views::zip(field_prefixes, tables)) {
         if (table->num_rows() != tables[0]->num_rows()) {
             return Status::Invalid("Tables must have the same number of rows.");
@@ -130,7 +168,7 @@ Result<shared_ptr<Table>> HorizConcatTables(
         }
     }
 
-    std::shared_ptr<arrow::Schema> schema;
+    std::shared_ptr<::arrow::Schema> schema;
     ARROW_ASSIGN_OR_RAISE(schema, schema_builder.Finish());
 
     return Table::Make(schema, combined_cols);
@@ -138,19 +176,19 @@ Result<shared_ptr<Table>> HorizConcatTables(
 
 // see arrow's cpp/src/arrow/json/reader_test.cc
 inline static Status MakeStream(std::string_view src_str,
-                                shared_ptr<arrow::io::InputStream>* out) {
-    auto src = make_shared<arrow::Buffer>(src_str);
-    *out = make_shared<arrow::io::BufferReader>(src);
+                                shared_ptr<::arrow::io::InputStream>* out) {
+    auto src = make_shared<::arrow::Buffer>(src_str);
+    *out = make_shared<::arrow::io::BufferReader>(src);
     return Status::OK();
 }
 
 Result<shared_ptr<Table>> ReadToTable(
-    string json, const arrow::json::ReadOptions& read_options,
-    const arrow::json::ParseOptions& parse_options) {
-    shared_ptr<arrow::io::InputStream> input;
+    string json, const ::arrow::json::ReadOptions& read_options,
+    const ::arrow::json::ParseOptions& parse_options) {
+    shared_ptr<::arrow::io::InputStream> input;
     RETURN_NOT_OK(MakeStream(json, &input));
-    ARROW_ASSIGN_OR_RAISE(auto reader, arrow::json::TableReader::Make(
-                                           arrow::default_memory_pool(), input,
+    ARROW_ASSIGN_OR_RAISE(auto reader, ::arrow::json::TableReader::Make(
+                                           ::arrow::default_memory_pool(), input,
                                            read_options, parse_options));
     return reader->Read();
 }

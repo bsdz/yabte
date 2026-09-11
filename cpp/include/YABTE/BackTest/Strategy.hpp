@@ -46,7 +46,8 @@ class Strategy {
     shared_ptr<OrderDeque> orders_;
 
     // writable during init, readable during open/close
-    shared_ptr<Table> data_ = nullptr;
+    shared_ptr<const Table> data_ = nullptr;
+    int64_t current_idx_ = -1;
 
     //    protected:
     Strategy() = default;

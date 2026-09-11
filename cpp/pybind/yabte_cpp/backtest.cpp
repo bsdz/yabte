@@ -7,6 +7,12 @@
 #include <pybind11/stl_bind.h>
 
 #include <format>
+#include <algorithm> // For std::max
+
+#include "YABTE/Utilities/Arrow/TableHelpers.hpp"
+#include <arrow/compute/api.h>
+
+using YABTE::Utilities::Arrow::ComputeMovingAverage;
 
 #define STRINGIFY(x) #x
 #define MACRO_STRINGIFY(x) STRINGIFY(x)
@@ -181,6 +187,146 @@ class PyOrder : public Order {
         PYBIND11_OVERRIDE_PURE(void, Order, apply, ts, day_data, asset_map);
     };
 };
+
+class SMAXOStrategy : public Strategy {
+   public:
+    std::string asset_name_;
+    int n_;
+    int m_;
+    
+    // Cached column names
+    std::string close_col_name_;
+    std::string short_ma_col_name_;
+    std::string long_ma_col_name_;
+    
+    // Cached column indices
+    int short_ma_col_idx_ = -1;
+    int long_ma_col_idx_ = -1;
+
+    SMAXOStrategy(std::string asset_name, int n, int m)
+        : Strategy(), asset_name_(asset_name), n_(n), m_(m) {
+            this->params_["n"] = n;
+            this->params_["m"] = m;
+            
+            // Pre-calculate column names
+            close_col_name_ = std::format("{}.Close", asset_name_);
+            short_ma_col_name_ = std::format("{}.CloseSMAShort", asset_name_);
+            long_ma_col_name_ = std::format("{}.CloseSMALong", asset_name_);
+        }
+
+    shared_ptr<Strategy> clone() const override {
+        // Default copy constructor is fine for strings/ints
+        return std::make_shared<SMAXOStrategy>(*this);
+    }
+
+    shared_ptr<const Table> extend_data(
+        const shared_ptr<const Table> &data) override {
+        
+        auto vals = data->GetColumnByName(close_col_name_);
+        if (!vals) {
+             // Fallback for tuple names
+             auto tuple_name = std::format("('{}', 'Close')", asset_name_);
+             vals = data->GetColumnByName(tuple_name);
+             if (!vals) {
+                 throw std::runtime_error("Column not found: " + close_col_name_ + " or " + tuple_name);
+             }
+             // Update cached names to tuple format
+             short_ma_col_name_ = std::format("('{}', 'CloseSMAShort')", asset_name_);
+             long_ma_col_name_ = std::format("('{}', 'CloseSMALong')", asset_name_);
+        }
+
+        auto st_cma_short = ComputeMovingAverage(vals, n_);
+        auto st_cma_long = ComputeMovingAverage(vals, m_);
+
+        if (!st_cma_short.ok()) throw std::runtime_error("Failed to compute Short MA");
+        if (!st_cma_long.ok()) throw std::runtime_error("Failed to compute Long MA");
+
+        shared_ptr<ChunkedArray> ma_chunked_arr_short = st_cma_short.ValueOrDie();
+        shared_ptr<ChunkedArray> ma_chunked_arr_long = st_cma_long.ValueOrDie();
+
+        auto f0 = arrow::field(short_ma_col_name_, arrow::float64());
+        auto f1 = arrow::field(long_ma_col_name_, arrow::float64());
+
+        auto schema = arrow::schema({f0, f1});
+        return arrow::Table::Make(schema, {ma_chunked_arr_short, ma_chunked_arr_long});
+    }
+
+    void on_open() override {
+        // If indices are not cached, cache them now. 
+        // We can trust schema is stable during the run after extend_data.
+        if (short_ma_col_idx_ == -1) {
+            auto schema = this->data_->schema();
+            short_ma_col_idx_ = schema->GetFieldIndex(short_ma_col_name_);
+            long_ma_col_idx_ = schema->GetFieldIndex(long_ma_col_name_);
+        }
+    }
+
+    void on_close() override {
+        // Updated logic to use current_idx_ instead of assuming sliced data
+        // auto nrows = this->data_->num_rows(); // data_ is now the full table
+        auto idx = this->current_idx_;
+
+        if (idx < std::max(n_, m_) + 1) return;
+
+        // Use cached indices if available, else fallback to name lookup (safety)
+        std::shared_ptr<arrow::ChunkedArray> s_short, s_long;
+        
+        if (short_ma_col_idx_ != -1 && long_ma_col_idx_ != -1) {
+             s_short = this->data_->column(short_ma_col_idx_);
+             s_long = this->data_->column(long_ma_col_idx_);
+        } else {
+             // Should have been cached in on_open, but just in case
+             s_short = this->data_->GetColumnByName(short_ma_col_name_);
+             s_long = this->data_->GetColumnByName(long_ma_col_name_);
+        }
+
+        if (!s_short || !s_long) return;
+
+        // Helper lambda to get value at index efficiently
+        auto get_val = [](const std::shared_ptr<arrow::ChunkedArray>& arr, int64_t i) -> std::optional<double> {
+            if (arr->num_chunks() == 1) {
+                 // Fast path
+                 auto carray = std::static_pointer_cast<arrow::DoubleArray>(arr->chunk(0));
+                 if (carray->IsNull(i)) return std::nullopt;
+                 return carray->Value(i);
+            } else {
+                // Chunked path (slower but correct)
+                // Use a simplified logic or arrow's resolver. 
+                // For this benchmark, assuming likely single chunk or infrequent chunks.
+                // Revert to slower scalar access if needed, but let's try to handle it decently.
+                int64_t offset = 0;
+                for (const auto& chunk : arr->chunks()) {
+                    if (i < offset + chunk->length()) {
+                        auto carray = std::static_pointer_cast<arrow::DoubleArray>(chunk);
+                        auto local_idx = i - offset;
+                        if (carray->IsNull(local_idx)) return std::nullopt;
+                        return carray->Value(local_idx);
+                    }
+                    offset += chunk->length();
+                }
+                return std::nullopt;
+            }
+        };
+
+        auto v_short_curr = get_val(s_short, idx);
+        auto v_short_prev = get_val(s_short, idx - 1);
+        auto v_long_curr = get_val(s_long, idx);
+        auto v_long_prev = get_val(s_long, idx - 1);
+
+        if (!v_short_curr || !v_short_prev || !v_long_curr || !v_long_prev) return;
+
+        if (v_short_prev.value() < v_long_prev.value() &&
+            v_short_curr.value() > v_long_curr.value()) {
+            this->orders_->push_back(
+                std::make_shared<SimpleOrder>(asset_name_, 100));
+        } else if (v_long_prev.value() < v_short_prev.value() &&
+                   v_long_curr.value() > v_short_curr.value()) {
+            this->orders_->push_back(
+                std::make_shared<SimpleOrder>(asset_name_, -100));
+        }
+    }
+};
+
 
 PYBIND11_MAKE_OPAQUE(AssetMap)
 PYBIND11_MAKE_OPAQUE(BookMap)
@@ -361,13 +507,19 @@ PYBIND11_MODULE(_yabte_backtest_lib, m) {
              })
         .def_property_readonly("data",
                                [](const Strategy &s) -> py::handle {
-                                   return arrow::py::wrap_table(s.data_);
+                                   return arrow::py::wrap_table(
+                                       std::const_pointer_cast<arrow::Table>(
+                                           s.data_));
                                })
         .def_property_readonly(
             "asset_map", [](const Strategy &s) { return s.asset_map_.get(); })
         .def_property_readonly(
             "orders", [](const Strategy &s) { return s.orders_.get(); })
         .def_readonly("params", &Strategy::params_);
+
+    py::class_<SMAXOStrategy, Strategy, shared_ptr<SMAXOStrategy>>(m, "SMAXOStrategy")
+        .def(py::init<std::string, int, int>(),
+             py::arg("asset_name"), py::arg("n"), py::arg("m"));
 
     // strategy runner
     py::bind_map<ParamMap>(m, "ParamMap");

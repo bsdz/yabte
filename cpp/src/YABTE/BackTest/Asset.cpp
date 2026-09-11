@@ -108,6 +108,40 @@ shared_ptr<DayData> Asset::_filter_data(const DayData &day_data) const {
     return day_data_filt;
 }
 
+double Asset::intraday_traded_price(const std::shared_ptr<arrow::Table>& data,
+                                    int64_t idx,
+                                    const optional<double> size) const {
+    // Default implementation for backward compatibility (e.g. Python assets)
+    // Slices the table and calls the old method.
+    // Note: The old method expects *filtered* data if called from SimpleOrder,
+    // but here we are just adapting the signature.
+    // However, subclasses like PyAsset override the old method which expects
+    // filtered data usually passed from outside.
+    // If we call the old method here with raw data, it might fail.
+    // But wait, the StrategyRunner loop calls Order::apply with raw sliced data.
+    // Order::apply calls _filter_data then asset->intraday_traded_price.
+    
+    // If we change StrategyRunner to call this new method directly (or via Order),
+    // we are skipping _filter_data.
+    // So this default implementation MUST perform _filter_data logic if the underlying
+    // old method expects it.
+    
+    // Actually, let's assume this method is only called by updated Orders/Runners.
+    // If a subclass (like PyAsset) hasn't overridden this, we must ensure
+    // we provide what the old method expects.
+    
+    auto day_data = data->Slice(idx, 1);
+    auto filtered = this->_filter_data(*day_data);
+    return this->intraday_traded_price(*filtered, size);
+}
+
+double Asset::end_of_day_price(const std::shared_ptr<arrow::Table>& data,
+                               int64_t idx) const {
+    auto day_data = data->Slice(idx, 1);
+    auto filtered = this->_filter_data(*day_data);
+    return this->end_of_day_price(*filtered);
+}
+
 OHLCAsset::OHLCAsset(const string &name, const string &denom,
                      const optional<int> &price_round_dp,
                      const optional<int> &quantity_round_dp,
@@ -194,6 +228,98 @@ vector<tuple<string, AssetDataFieldInfo>> OHLCAsset::data_fields() const {
                              AssetDataFieldInfo::REQUIRED));
     v.emplace_back("Volume", AssetDataFieldInfo::AVAILABLE_AT_CLOSE);
     return v;
+}
+
+// Helper to get value from ChunkedArray at index
+inline std::optional<double> GetValue(const std::shared_ptr<arrow::ChunkedArray>& arr, int64_t i) {
+    if (!arr) return std::nullopt;
+    // Fast path for single chunk
+    if (arr->num_chunks() == 1) {
+        auto carray = std::static_pointer_cast<arrow::DoubleArray>(arr->chunk(0));
+        if (carray->IsNull(i)) return std::nullopt;
+        return carray->Value(i);
+    }
+    // General path
+    // TODO: Optimize by caching last chunk index/offset if needed
+    int64_t offset = 0;
+    for (const auto& chunk : arr->chunks()) {
+        if (i < offset + chunk->length()) {
+             auto carray = std::static_pointer_cast<arrow::DoubleArray>(chunk);
+             auto local_idx = i - offset;
+             if (carray->IsNull(local_idx)) return std::nullopt;
+             return carray->Value(local_idx);
+        }
+        offset += chunk->length();
+    }
+    return std::nullopt;
+}
+
+double OHLCAsset::intraday_traded_price(const std::shared_ptr<arrow::Table>& data,
+                                        int64_t idx,
+                                        const optional<double> size) const {
+    if (!indices_initialized_) {
+        auto schema = data->schema();
+        auto find_col = [&](const std::string& field) -> int {
+            // Try tuple format
+            std::string name = "('" + this->data_label_ + "', '" + field + "')";
+            int i = schema->GetFieldIndex(name);
+            if (i != -1) return i;
+            // Try dot format
+            name = this->data_label_ + "." + field;
+            return schema->GetFieldIndex(name);
+        };
+        
+        idx_low_ = find_col("Low");
+        idx_high_ = find_col("High");
+        idx_close_ = find_col("Close");
+        // idx_open_ = find_col("Open"); 
+        indices_initialized_ = true;
+    }
+
+    std::optional<double> low, high;
+    
+    if (idx_low_ != -1) low = GetValue(data->column(idx_low_), idx);
+    if (idx_high_ != -1) high = GetValue(data->column(idx_high_), idx);
+
+    if (low.has_value() && high.has_value() && !std::isnan(low.value()) && !std::isnan(high.value())) {
+        return round_dp((low.value() + high.value()) / 2.0, this->price_round_dp_);
+    }
+
+    if (idx_close_ != -1) {
+        auto close = GetValue(data->column(idx_close_), idx);
+        if (close.has_value()) {
+            return round_dp(close.value(), this->price_round_dp_);
+        }
+    }
+
+    throw std::runtime_error("Unable to determine intraday traded price for " + this->name_);
+}
+
+double OHLCAsset::end_of_day_price(const std::shared_ptr<arrow::Table>& data,
+                                   int64_t idx) const {
+    if (!indices_initialized_) {
+         auto schema = data->schema();
+         auto find_col = [&](const std::string& field) -> int {
+            std::string name = "('" + this->data_label_ + "', '" + field + "')";
+            int i = schema->GetFieldIndex(name);
+            if (i != -1) return i;
+            name = this->data_label_ + "." + field;
+            return schema->GetFieldIndex(name);
+        };
+        idx_low_ = find_col("Low");
+        idx_high_ = find_col("High");
+        idx_close_ = find_col("Close");
+        indices_initialized_ = true;
+    }
+
+    if (idx_close_ != -1) {
+        auto close = GetValue(data->column(idx_close_), idx);
+        if (close.has_value()) {
+             return round_dp(close.value(), this->price_round_dp_);
+        }
+    }
+
+    throw std::runtime_error("Unable to determine end of day price for " + this->name_);
 }
 
 }  // namespace YABTE::BackTest

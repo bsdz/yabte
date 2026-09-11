@@ -42,9 +42,13 @@ class Order {
     void _book_trades(const vector<shared_ptr<Trade>> trades);
 
     virtual void post_complete(const vector<shared_ptr<Trade>> trades);
-
+    
+    // Old method (pure virtual)
     virtual void apply(const Timestamp &ts, const DayData &day_data,
                        const AssetMap &asset_map) = 0;
+
+    // New efficient method
+    virtual void apply(const Timestamp &ts, const std::shared_ptr<arrow::Table>& data, int64_t idx, const AssetMap &asset_map);
 
     OrderStatus status_;
     optional<string> book_name_;
@@ -75,8 +79,13 @@ class SimpleOrder : public Order {
                                             const double trade_price) const;
     tuple<double, double> _calc_quantity_price(const DayData &day_data,
                                                const AssetMap &asset_map) const;
+    tuple<double, double> _calc_quantity_price(const std::shared_ptr<arrow::Table>& data,
+                                               int64_t idx,
+                                               const AssetMap &asset_map) const;
 
     void apply(const Timestamp &ts, const DayData &day_data,
                const AssetMap &asset_map) override;
+    
+    void apply(const Timestamp &ts, const std::shared_ptr<arrow::Table>& data, int64_t idx, const AssetMap &asset_map) override;
 };
 }  // namespace YABTE::BackTest

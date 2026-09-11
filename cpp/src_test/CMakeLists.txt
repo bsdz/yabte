@@ -20,6 +20,7 @@ add_executable(
 
     ${CMAKE_SOURCE_DIR}/src_test/yabte_backtest/strategy_runner_optimize.cpp
     ${CMAKE_SOURCE_DIR}/src_test/arrow/load_manip_vanilla.cpp
+    ${CMAKE_SOURCE_DIR}/src_test/arrow/test_moving_average.cpp
 )
 target_link_libraries(
     ${GTEST_YABTE_EXE}

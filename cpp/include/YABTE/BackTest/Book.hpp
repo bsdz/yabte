@@ -29,6 +29,8 @@ class Book {
     void add_transactions(const TransactionVector &transactions);
     void eod_tasks(const Timestamp &ts, const DayData &day_data,
                    const AssetMap &asset_map);
+    void eod_tasks(const Timestamp &ts, const std::shared_ptr<arrow::Table>& data, int64_t idx,
+                   const AssetMap &asset_map);
 
     shared_ptr<Table> history() const;
 

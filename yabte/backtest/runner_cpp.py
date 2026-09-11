@@ -15,9 +15,12 @@ from .strategy import Strategy
 from .strategyrunner import StrategyRunnerResult
 
 try:
-    import _yabte_backtest_lib as yabte_cpp
+    from . import _yabte_backtest_lib as yabte_cpp
 except ImportError:
-    yabte_cpp = None
+    try:
+        import _yabte_backtest_lib as yabte_cpp
+    except ImportError:
+        yabte_cpp = None
 
 
 class CppStrategyRunner:
@@ -119,6 +122,16 @@ class CppStrategyRunner:
         # 2. Convert Strategies (Adapter)
         cpp_strategies = []
         for strat in self.strategies:
+            # Check if strat is already a C++ strategy instance
+            if yabte_cpp and isinstance(strat, yabte_cpp.Strategy):
+                # It's already a C++ object.
+                # We skip setting params/data/assets because C++ strategies
+                # should be self-contained or initialized differently.
+                # If they support param injection via property, we could try setting it,
+                # but currently our bindings expose params as readonly.
+                cpp_strategies.append(strat)
+                continue
+
             strat.params = pd.Series(params or {}, dtype=object)
             # IMPORTANT: C++ engine doesn't inject data into python strategy object automatically.
             # We must set `strat.data` here manually, matching `PythonStrategyRunner`.
@@ -128,6 +141,10 @@ class CppStrategyRunner:
             strat.data = deepcopy(
                 self.data
             )  # Use public setter which might do other things, but unlock first
+
+            # Also inject assets map into strategy, which PythonStrategyRunner does
+            asset_map = {asset.name: asset for asset in self.assets}
+            strat.assets = asset_map
 
             cpp_strat = CppStrategyAdapter(strat)
             cpp_strategies.append(cpp_strat)
