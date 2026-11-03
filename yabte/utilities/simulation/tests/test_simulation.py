@@ -75,7 +75,7 @@ class SimulationTestCase(NumpyTestCase):
 
         # normal differences
         for m, k in zip(range(M), range(K)):
-            ksr = stats.kstest(dws[:, m, k], "norm", args=(0, 1))
+            ksr = stats.kstest(dws[:, m, k], stats.norm(0, 1).cdf)
             self.assertGreater(ksr.pvalue, 0.01)
 
     def test_gbm_simple(self):
@@ -127,7 +127,7 @@ class SimulationTestCase(NumpyTestCase):
 
         # normal differences
         for m, k in zip(range(M), range(K)):
-            ksr = stats.kstest(dws[:, m, k], "norm", args=(0, 1))
+            ksr = stats.kstest(dws[:, m, k], stats.norm(0, 1).cdf)
             self.assertGreater(ksr.pvalue, 0.01)
 
     @unittest.skipUnless(HAS_SCIPY, "needs scipy")
@@ -141,63 +141,45 @@ class SimulationTestCase(NumpyTestCase):
         S0 = 50
 
         # simulate data
-        # p[steps, sims, path]
-
-        P = [
-            gbm_simulate_paths(
-                S0=S0, mu=r, sigma=sigma, R=R, T=T, n_steps=N, n_sims=M, rng=self.rng
-            )
-            for x in range(1000)
-        ]
+        # P[steps, sims, path]
+        P = gbm_simulate_paths(
+            S0=S0, mu=r, sigma=sigma, R=R, T=T, n_steps=N, n_sims=M, rng=self.rng
+        )
 
         # analytical moments
         E_S_T = S0 * np.exp(r * T)
         Var_S_T = S0**2 * np.exp(2 * r * T) * (np.exp(sigma**2 * T) - 1)
 
         # empirical moments
-        # S_T = P[-1, :, 0]
-        # E_S_T_emp = np.mean(S_T)
-        # Var_S_T_emp = np.var(S_T)
+        S_T = P[-1, :, 0]
+        E_S_T_emp = np.mean(S_T)
 
-        S_T_s = np.c_[P][:, -1, :, 0]
-        E_S_T_emp_s = np.mean(S_T_s, axis=1)
-
-        # i.e. CLM => e_M * sqrt(M) / sigma = Z ~ N(0, 1); where e_M = E_S_T_emp - E_S_T
-        Z = (E_S_T_emp_s - E_S_T) * np.sqrt(M) / np.sqrt(Var_S_T)
-
-        print(stats.kstest(Z, "norm"))
-
-        # check error is small to within 99% probability
-        # i.e. CLM => e_M * sqrt(M) / sigma = Z ~ N(0, 1); where e_M = E_S_T_emp - E_S_T
-        # since P(|Z| < s) = P(-s < Z < s) = Phi(s) - Phi(-s) = 1 - 2 * Phi(-s)
-        # and P(|Z| < s) = P(|e_M * sqrt(M) / sigma| < s) = P(|e_M| < s * sig / sqrt(M))
-        # choose analytical Variance for sig^2
-
-        # confidence interval
-        # P(|E_m| < eps) = P(|E_m|* np.sqrt(M) / sigma < eps * np.sqrt(M) / sigma))
-        # = P(|Z| < eps * np.sqrt(M) / sigma) = 1 - alpha
-        # since P(|Z| < s) = P(-s < Z < s) = Phi(s) - Phi(-s) = 1 - 2 * Phi(-s)
-        # and choose analytical Variance for sigma^2
-        # => P(|E_m| < eps) = 1 - 2 * Phi(-eps * np.sqrt(M) / sigma) = 1 - alpha
-        # => 2 * Phi(-eps * np.sqrt(M) / sigma) = alpha
-        # => Phi(-eps * np.sqrt(M) / sigma) = alpha / 2
-        # => -eps * np.sqrt(M) / sigma = phi(alpha / 2)
-
+        # CLT => Z = (E_S_T_emp - E_S_T) * sqrt(M) / sigma ~ N(0, 1), taking the
+        # analytical variance for sigma^2. Two-sided p-value = P(|Z| >= |z|)
+        # = 2 * Phi(-|z|); reject (fail) at alpha = 1%, i.e. when
+        # |z| > Phi^-1(1 - alpha / 2) ~= 2.576. Note 1 - 2 * Phi(-|z|) is
+        # Uniform(0, 1) under the null, so it must not be used as the statistic.
         # https://math.arizona.edu/~tgk/mc/book_chap2.pdf
+        z = np.abs(E_S_T_emp - E_S_T) * np.sqrt(M) / np.sqrt(Var_S_T)
+        pvalue = 2 * stats.norm.cdf(-z)
+        self.assertGreater(pvalue, 0.01)
 
-        # 1- alpha =
-        # = P(|E_m| < B * sqrt(Var_S_T) / sqrt(M))
-        # = P(|E_m| * sqrt(M) / sqrt(Var_S_T) < B)
-        # = P(|Z| < B) = 1 - 2 * Phi(B)
-        # => B = Phi^-1(alpha / 2)
+        # Same idea for the variance: the sample variance s^2 is asymptotically
+        # N(Var, (mu_4 - Var^2) / M), where mu_4 is the 4th central moment. S_T is
+        # lognormal, so its raw moments are E[S_T^k] = S0^k exp(k r T + k (k-1)
+        # sigma^2 T / 2) and mu_4 follows from those. Over 20k seeds this rejects
+        # ~1.06% at alpha = 1%, so the normal approximation holds at M = 1000.
+        def raw_moment(k):
+            return S0**k * np.exp(k * r * T + k * (k - 1) * sigma**2 * T / 2)
 
-        # e = E_S_T_emp - E_S_T
-        # z = np.abs(e) * np.sqrt(M) / np.sqrt(Var_S_T)  # implied standard deviations
-        # P = 1 - 2 * stats.norm.cdf(-s)
-        # self.assertLessEqual(P, 1)
-        # self.assertGreater(P, 0.85)  # TODO: how to get this to 0.95?
+        m1, m2, m3, m4 = (raw_moment(k) for k in (1, 2, 3, 4))
+        mu_4 = m4 - 4 * m1 * m3 + 6 * m1**2 * m2 - 3 * m1**4
+        self.assertAlmostEqual(m2 - m1**2, Var_S_T)
 
-        # TODO: statistical test to check |Var_S_T_emp - Var_S_T|?
+        Var_S_T_emp = np.var(S_T, ddof=1)
+        z_var = np.abs(Var_S_T_emp - Var_S_T) / np.sqrt((mu_4 - Var_S_T**2) / M)
+        pvalue_var = 2 * stats.norm.cdf(-z_var)
+        self.assertGreater(pvalue_var, 0.01)
 
     def test_heston_smoke(self):
         kappa = 4
