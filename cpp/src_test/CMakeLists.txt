@@ -33,6 +33,10 @@ target_include_directories(
     PRIVATE ${CMAKE_SOURCE_DIR}/include
     PRIVATE ${CMAKE_SOURCE_DIR}/src_test
 )
+target_compile_definitions(
+    ${GTEST_YABTE_EXE}
+    PRIVATE YABTE_CPP_TEST_DATA_DIR_DEFAULT="${CMAKE_SOURCE_DIR}/src_test/data"
+)
 
 # test discovery
 #

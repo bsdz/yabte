@@ -1,11 +1,11 @@
-#include <stdexcept>
+#include <cstdlib>
 #include <string>
 
+// Directory holding the test data files. YABTE_CPP_TEST_DATA_DIR overrides the
+// default, which CMake sets to this source directory (src_test/data).
 std::string test_data_path() {
-    auto test_data_dir = std::getenv("YABTE_CPP_TEST_DATA_DIR");
-    if (test_data_dir != nullptr)
-        return test_data_dir;
-    else
-        return "/home/blair/projects/yabte_cpp/src_test/data";
-    throw std::runtime_error("YABTE_CPP_TEST_DATA_DIR not set");
+    if (auto dir = std::getenv("YABTE_CPP_TEST_DATA_DIR"); dir != nullptr) {
+        return dir;
+    }
+    return YABTE_CPP_TEST_DATA_DIR_DEFAULT;
 }
