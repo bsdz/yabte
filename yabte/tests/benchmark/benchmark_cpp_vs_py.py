@@ -1,195 +1,202 @@
-import logging
+"""Compare the Python and C++ engines on the same strategy.
+
+Every scenario runs one SMA crossover strategy (buy 100 when the short SMA crosses
+above the long, sell 100 when it crosses below) and the trades are checked to be
+identical across scenarios, so the timings compare the same work:
+
+- ``python/pandas``: Python engine, idiomatic strategy reading ``self.data`` each step
+- ``cpp/pandas``: C++ engine, same strategy
+- ``python/numpy``: Python engine, strategy with near-zero cost (precomputed numpy
+  signals), so the time is mostly the engine
+- ``cpp/numpy``: C++ engine, same
+- ``cpp/native``: C++ engine, native C++ ``SMAXOStrategy``
+
+Usage (C++ extension on PYTHONPATH for a dev build)::
+
+    PYTHONPATH=cpp/build/Release/pybind python -m yabte.tests.benchmark.benchmark_cpp_vs_py
+    python -m yabte.tests.benchmark.benchmark_cpp_vs_py --assets 10,50 --years 5 --repeats 3
+"""
+
+import argparse
+import statistics
 import time
-from typing import List
+from decimal import Decimal
 
 import numpy as np
 import pandas as pd
 
-# Configure logging to avoid debug spam during benchmark
-logging.basicConfig(level=logging.INFO)
+from yabte.backtest import Book, OHLCAsset, SimpleOrder, Strategy, StrategyRunner
+from yabte.backtest.runner_cpp import yabte_cpp
 
-from yabte.backtest.asset import OHLCAsset
-from yabte.backtest.order import Order, SimpleOrder
-from yabte.backtest.strategy import Strategy
-from yabte.backtest.strategyrunner import StrategyRunner
-from yabte.utilities.simulation.geometric_brownian_motion import gbm_simulate_paths
-
-try:
-    from yabte.backtest._yabte_backtest_lib import SMAXOStrategy as CppSMAXOStrategy
-
-    HAS_CPP = True
-except ImportError:
-    HAS_CPP = False
-    print("Warning: C++ extension not found.")
-
-# --- 1. Generate Synthetic Data ---
+SMA_SHORT, SMA_LONG = 50, 200
 
 
-def generate_synthetic_data(n_assets=50, n_years=5, freq="D"):
-    """Generates synthetic OHLCV data for multiple assets using GBM."""
-    print(f"Generating synthetic data for {n_assets} assets over {n_years} years...")
-
-    # Time parameters
-    if freq == "D":
-        n_steps = n_years * 252
-        dt = 1 / 252
-    else:
-        # Simplified for now, assuming daily
-        n_steps = n_years * 252
-        dt = 1 / 252
-
-    T = n_years
-
-    # Random drift and volatility for each asset
-    np.random.seed(42)  # Ensure reproducibility
-    mu = np.random.normal(0.05, 0.02, n_assets)  # 5% annual drift avg
-    sigma = np.random.normal(0.2, 0.05, n_assets)  # 20% annual vol avg
-    S0 = 100
-
-    # Correlation matrix (identity for simplicity, uncorrelated assets)
-    R = np.eye(n_assets)
-
-    # Use 1 simulation path
-    prices = gbm_simulate_paths(
-        S0=S0, mu=mu, sigma=sigma, R=R, T=T, n_steps=n_steps, n_sims=1
-    )
-    # prices shape: (n_steps, 1, n_assets)
-
-    # Flatten to (n_steps, n_assets)
-    prices = prices[:, 0, :]
-
-    # Create DataFrame
-    dates = pd.date_range(start="2020-01-01", periods=n_steps, freq="B")
-    asset_names = [f"ASSET_{i}" for i in range(n_assets)]
-
-    # Create MultiIndex DataFrame (Asset, Field)
-    data_frames = {}
-
-    for i, asset in enumerate(asset_names):
-        close_series = prices[:, i]
-        # Synthetic variations
-        high_series = close_series * (1 + np.abs(np.random.normal(0, 0.005, n_steps)))
-        low_series = close_series * (1 - np.abs(np.random.normal(0, 0.005, n_steps)))
-        open_series = close_series * (1 + np.random.normal(0, 0.002, n_steps))
-        volume_series = np.random.randint(1000, 100000, n_steps)
-
-        df_asset = pd.DataFrame(
-            {
-                "Close": close_series,
-                "High": high_series,
-                "Low": low_series,
-                "Open": open_series,
-                "Volume": volume_series,
-            },
-            index=dates,
-        )
-
-        data_frames[asset] = df_asset
-
-    # Concatenate to get (Date, (Asset, Field))
-    # concat(dict) creates keys as first level of columns
-    df_combined = pd.concat(data_frames, axis=1)
-
-    return df_combined, asset_names
+def generate_data(n_assets: int, n_years: int, seed: int = 42):
+    """Synthetic daily OHLCV data for `n_assets` assets over `n_years` years."""
+    rng = np.random.default_rng(seed)
+    steps = n_years * 252
+    index = pd.date_range("2015-01-01", periods=steps, freq="B")
+    names = [f"A{i}" for i in range(n_assets)]
+    cols = {}
+    for name in names:
+        close = 100 * np.exp(np.cumsum(rng.normal(0.0002, 0.0126, steps)))
+        open_ = close * (1 + rng.normal(0, 0.002, steps))
+        high = np.maximum(open_, close) * (1 + np.abs(rng.normal(0, 0.005, steps)))
+        low = np.minimum(open_, close) * (1 - np.abs(rng.normal(0, 0.005, steps)))
+        volume = rng.integers(1000, 100000, steps).astype(float)
+        for field, values in zip(
+            ["Open", "High", "Low", "Close", "Volume"],
+            [open_, high, low, close, volume],
+        ):
+            cols[(name, field)] = values
+    df = pd.DataFrame(cols, index=index)
+    df.columns = pd.MultiIndex.from_tuples(df.columns)
+    return df, names
 
 
-# --- 2. Define Python Strategy ---
+class PandasSMAXO(Strategy):
+    """Idiomatic: SMAs added to ``self.data`` in init(), read back each step."""
 
+    def __init__(self, names):
+        self.names = list(names)
 
-class PythonSMAXOComparable(Strategy):
-    def __init__(self, asset_name, n, m):
-        self.asset_name = asset_name
-        self.n = n
-        self.m = m
+    def init(self):
+        close = self.data.loc[:, (slice(None), "Close")]
+        short = close.rolling(SMA_SHORT).mean().rename({"Close": "S"}, axis=1, level=1)
+        long = close.rolling(SMA_LONG).mean().rename({"Close": "L"}, axis=1, level=1)
+        self.data = pd.concat([self.data, short, long], axis=1).sort_index(axis=1)
 
     def on_close(self):
-        # Access data via standard API which includes slicing overhead
-        df_hist = self.data
-
-        # Check sufficient history
-        if len(df_hist) < self.m:
+        data = self.data
+        if len(data) < SMA_LONG + 2:
             return
+        for name in self.names:
+            s = data[(name, "S")].iloc[-2:].values
+            l = data[(name, "L")].iloc[-2:].values
+            if s[0] < l[0] and s[1] > l[1]:
+                self.orders.append(SimpleOrder(asset_name=name, size=100))
+            elif l[0] < s[0] and l[1] > s[1]:
+                self.orders.append(SimpleOrder(asset_name=name, size=-100))
 
-        try:
-            # MultiIndex column access
-            closes = df_hist[(self.asset_name, "Close")]
-        except KeyError:
+
+class NumpySMAXO(Strategy):
+    """Near-zero strategy cost: signals precomputed with numpy in init()."""
+
+    def __init__(self, names):
+        self.names = list(names)
+
+    def init(self):
+        self.i = -1
+        close = self.data.loc[:, [(name, "Close") for name in self.names]]
+        self.s = close.rolling(SMA_SHORT).mean().values
+        self.l = close.rolling(SMA_LONG).mean().values
+
+    def on_close(self):
+        self.i += 1
+        i = self.i
+        if i < SMA_LONG + 1:
             return
-
-        # Calculate SMAs using pandas
-        # This mirrors the computation in C++ (summing/averaging)
-        # but with Python/Pandas overhead
-        sma_short = closes.iloc[-self.n :].mean()
-        sma_long = closes.iloc[-self.m :].mean()
-
-        if sma_short > sma_long:
-            self.orders.append(SimpleOrder(asset_name=self.asset_name, size=1))
-        elif sma_short < sma_long:
-            self.orders.append(SimpleOrder(asset_name=self.asset_name, size=-1))
+        s0, s1, l0, l1 = self.s[i - 1], self.s[i], self.l[i - 1], self.l[i]
+        crossed = ((s0 < l0) & (s1 > l1)) | ((l0 < s0) & (l1 > s1))
+        for j in np.flatnonzero(crossed):
+            size = 100 if s1[j] > l1[j] else -100
+            self.orders.append(SimpleOrder(asset_name=self.names[j], size=size))
 
 
-# --- 3. Benchmark Execution ---
+SCENARIOS = [
+    ("python", "pandas"),
+    ("cpp", "pandas"),
+    ("python", "numpy"),
+    ("cpp", "numpy"),
+    ("cpp", "native"),
+]
 
 
-def run_benchmark():
-    n_assets = 50
-    n_years = 5
-    n_sma = 50
-    m_sma = 200
+def make_strategies(kind: str, names):
+    if kind == "native":
+        return [yabte_cpp.SMAXOStrategy(name, SMA_SHORT, SMA_LONG) for name in names]
+    return [{"pandas": PandasSMAXO, "numpy": NumpySMAXO}[kind](names)]
 
-    data, asset_names = generate_synthetic_data(n_assets=n_assets, n_years=n_years)
 
-    # Use OHLCAsset because it implements check_and_fix_data
-    assets = [OHLCAsset(name=n) for n in asset_names]
+def run_scenario(data, names, engine: str, kind: str):
+    """Run once; returns (seconds, result).
 
-    print(f"Data shape: {data.shape}")
-    print(f"Number of timesteps: {len(data)}")
+    Timing includes runner set-up.
+    """
+    start = time.perf_counter()
+    result = StrategyRunner(
+        data=data,
+        assets=[OHLCAsset(name=name) for name in names],
+        strategies=make_strategies(kind, names),
+        books=[Book(name="Main", cash=Decimal(100_000_000))],
+        engine=engine,
+    ).run()
+    return time.perf_counter() - start, result
 
-    # --- Python Run ---
-    print("\nStarting Python Engine Benchmark (Comparable SMAXO Strategy)...")
-    # Using the comparable SMAXO strategy
-    strategies_py = [PythonSMAXOComparable(name, n_sma, m_sma) for name in asset_names]
 
-    runner_py = StrategyRunner(
-        data=data, assets=assets, strategies=strategies_py, engine="python"
+def canonical_trades(result) -> pd.DataFrame:
+    th = result.transaction_history
+    return (
+        pd.DataFrame(
+            {
+                "ts": pd.to_datetime(th["ts"]).values,
+                "asset": th["asset_name"].values,
+                "quantity": th["quantity"].astype(float).values,
+                "price": th["price"].astype(float).values,
+            }
+        )
+        .sort_values(["ts", "asset"])
+        .reset_index(drop=True)
     )
 
-    start_py = time.perf_counter()
-    runner_py.run()
-    end_py = time.perf_counter()
 
-    time_py = end_py - start_py
-    print(f"Python Engine Time: {time_py:.4f} seconds")
+def same_trades(a: pd.DataFrame, b: pd.DataFrame) -> bool:
+    return (
+        len(a) == len(b)
+        and (a.ts.values == b.ts.values).all()
+        and (a.asset.values == b.asset.values).all()
+        and np.allclose(a.quantity, b.quantity)
+        and np.allclose(a.price, b.price)
+    )
 
-    # --- C++ Run ---
-    if HAS_CPP:
-        print("\nStarting C++ Engine Benchmark (Pure C++ SMAXO)...")
-        # Instantiate the C++ strategy class directly
-        strategies_cpp = [CppSMAXOStrategy(name, n_sma, m_sma) for name in asset_names]
 
-        runner_cpp = StrategyRunner(
-            data=data, assets=assets, strategies=strategies_cpp, engine="cpp"
+def run_benchmark(n_assets: int, n_years: int, repeats: int):
+    data, names = generate_data(n_assets, n_years)
+    print(
+        f"\n{n_assets} assets, {n_years} years ({len(data)} steps), {repeats} repeat(s)"
+    )
+
+    reference = None
+    for engine, kind in SCENARIOS:
+        label = f"{engine}/{kind}"
+        if engine == "cpp" and yabte_cpp is None:
+            print(f"  {label:14s} skipped: C++ extension not found")
+            continue
+        times = []
+        for _ in range(repeats):
+            seconds, result = run_scenario(data, names, engine, kind)
+            times.append(seconds)
+        trades = canonical_trades(result)
+        if reference is None:
+            reference = trades
+        match = "same trades" if same_trades(reference, trades) else "TRADES DIFFER"
+        print(
+            f"  {label:14s} median {statistics.median(times):9.4f}s"
+            f"  (min {min(times):.4f}s)  {len(trades)} trades, {match}"
         )
 
-        try:
-            start_cpp = time.perf_counter()
-            runner_cpp.run()
-            end_cpp = time.perf_counter()
 
-            time_cpp = end_cpp - start_cpp
-            print(f"C++ Engine Time:    {time_cpp:.4f} seconds")
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--assets", default="10,50", help="comma-separated counts")
+    parser.add_argument("--years", default="5", help="comma-separated years")
+    parser.add_argument("--repeats", type=int, default=3)
+    args = parser.parse_args()
 
-            speedup = time_py / time_cpp
-            print(f"\nSpeedup Factor:     {speedup:.2f}x")
-
-        except Exception as e:
-            print(f"\nC++ Engine failed with error: {e}")
-            import traceback
-
-            traceback.print_exc()
-    else:
-        print("Skipping C++ benchmark.")
+    for n_years in map(int, args.years.split(",")):
+        for n_assets in map(int, args.assets.split(",")):
+            run_benchmark(n_assets, n_years, args.repeats)
 
 
 if __name__ == "__main__":
-    run_benchmark()
+    main()
