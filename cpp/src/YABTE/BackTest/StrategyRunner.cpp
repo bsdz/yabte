@@ -170,6 +170,33 @@ StrategyRunnerResult StrategyRunner::run(const ParamMap& params) {
         std::static_pointer_cast<arrow::TimestampType>(calendar->type())
             ->unit();
 
+    // End-of-day tasks run once per calendar date, on that date's last row —
+    // mirroring the Python engine's eod_calendar (groupby(date).max()). Null
+    // timestamps never mark an EOD; the row before a null defers to the next
+    // non-null row's date.
+    const int64_t n_rows = calendar->length();
+    std::vector<bool> is_eod(n_rows, false);
+    {
+        std::optional<std::chrono::sys_days> prev_day;
+        int64_t prev_row = -1;
+        int64_t row = 0;
+        for (const auto& chunk : calendar->chunks()) {
+            auto ts_array =
+                std::static_pointer_cast<arrow::TimestampArray>(chunk);
+            for (int64_t j = 0; j < ts_array->length(); ++j, ++row) {
+                if (ts_array->IsNull(j)) continue;
+                auto day = std::chrono::floor<std::chrono::days>(
+                    timestamp_from_unit(ts_array->Value(j), calendar_unit));
+                if (prev_day && day != *prev_day) {
+                    is_eod[prev_row] = true;
+                }
+                prev_day = day;
+                prev_row = row;
+            }
+        }
+        if (prev_row >= 0) is_eod[prev_row] = true;
+    }
+
 #ifdef YABTE_ENABLE_PROFILING
     auto end_init = std::chrono::high_resolution_clock::now();
     double time_init = std::chrono::duration<double>(end_init - start_init).count();
@@ -286,9 +313,11 @@ StrategyRunnerResult StrategyRunner::run(const ParamMap& params) {
 #ifdef YABTE_ENABLE_PROFILING
         t0 = std::chrono::high_resolution_clock::now();
 #endif
-        for (auto& book : result.books_) {
-            // Efficient call avoiding slice
-            book->eod_tasks(ts_chrono, this->data_, i, *asset_map);
+        if (is_eod[i]) {
+            for (auto& book : result.books_) {
+                // Efficient call avoiding slice
+                book->eod_tasks(ts_chrono, this->data_, i, *asset_map);
+            }
         }
 #ifdef YABTE_ENABLE_PROFILING
         t1 = std::chrono::high_resolution_clock::now();

@@ -50,25 +50,35 @@ inline double round_dp(const double &value, const optional<int> &dp = nullopt) {
     if (!dp.has_value()) {
         return value;
     }
-    double multiplier = std::pow(10.0, dp.value());
-    double x = value * multiplier;
-    double fl = std::floor(x);
-    double ce = std::ceil(x);
+    const double multiplier = std::pow(10.0, dp.value());
 
-    double diff_fl = x - fl;
-    double diff_ce = ce - x;
+    // Mirror the Python engine, which rounds the *exact* value of the double
+    // (Decimal(float) is exact) half-to-even. Multiplying by 10^dp can round
+    // away the sub-ulp part that decides a near-tie (e.g. the double nearest
+    // 103.465 is 103.46500000000000341..., yet 103.465 * 100 == 10346.5
+    // exactly), so recover it: value * multiplier == x + err exactly, where
+    // err is the FMA residual.
+    const double x = value * multiplier;
+    const double err = std::fma(value, multiplier, -x);
 
-    double result;
-    // TODO: use a small epsilon for float comparison to catch cases like
-    // 6246.500000000000003
-    if (diff_fl < diff_ce) {
-        result = fl;
-    } else if (diff_ce < diff_fl) {
-        result = ce;
-    } else {
-        // It's exactly halfway (0.5), use the even rule
-        result = (std::fmod(fl, 2.0) == 0) ? fl : ce;
+    const double fl = std::floor(x);
+    const double ce = std::ceil(x);
+    if (fl == ce) {
+        return fl / multiplier;  // integral; |err| is far below a half
     }
 
+    // (x - fl) is exact; d is a nonzero multiple of ulp(x) whenever it is
+    // nonzero, and |err| <= ulp(x)/2, so d alone decides unless it is zero.
+    const double d = (x - fl) - 0.5;
+
+    double result;
+    if (d > 0 || (d == 0 && err > 0)) {
+        result = ce;
+    } else if (d < 0 || (d == 0 && err < 0)) {
+        result = fl;
+    } else {
+        // Exact tie: round half to even.
+        result = (std::fmod(fl, 2.0) == 0) ? fl : ce;
+    }
     return result / multiplier;
 }

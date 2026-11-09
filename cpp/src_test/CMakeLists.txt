@@ -14,6 +14,7 @@ add_executable(
     ${CMAKE_SOURCE_DIR}/src_test/data/test_data.cpp
     ${CMAKE_SOURCE_DIR}/src_test/pybind/embed_vanilla.cpp
     ${CMAKE_SOURCE_DIR}/src_test/yabte_backtest/objects.cpp
+    ${CMAKE_SOURCE_DIR}/src_test/yabte_backtest/test_round_dp.cpp
     ${CMAKE_SOURCE_DIR}/src_test/yabte_backtest/test_strategy_01.cpp
 
     ${CMAKE_SOURCE_DIR}/src_test/yabte_backtest/strategy_runner_run.cpp

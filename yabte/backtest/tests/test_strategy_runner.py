@@ -20,6 +20,11 @@ from yabte.backtest import (
     Strategy,
     StrategyRunner,
 )
+from yabte.backtest.tests._parity import (
+    HAS_CPP,
+    ParityAssertionsMixin,
+    skip_or_fail_without_cpp,
+)
 from yabte.tests._helpers import generate_nasdaq_dataset, generate_ohlc_dataset
 from yabte.tests._unittest_numpy_extensions import NumpyTestCase
 from yabte.utilities.strategy_helpers import crossover
@@ -27,13 +32,6 @@ from yabte.utilities.strategy_helpers import crossover
 logger = logging.getLogger(__name__)
 
 # Check if C++ engine is available
-try:
-    import _yabte_backtest_lib
-
-    HAS_CPP = True
-except ImportError as e:
-    logger.warning(f"C++ engine not available: {e}")
-    HAS_CPP = False
 
 
 class TestSMAXOStrat(Strategy):
@@ -153,115 +151,38 @@ class TestBasketOrderSizeStrat(Strategy):
             )
 
 
-class StrategyRunnerTestCase(NumpyTestCase):
+class StrategyRunnerTestCase(ParityAssertionsMixin, NumpyTestCase):
     @classmethod
     def setUpClass(cls):
         cls.assets, cls.df_combined = generate_nasdaq_dataset()
 
     def _run_and_compare(self, name, kwargs, run_kwargs=None):
-        """Helper to run strategies with both engines and compare results."""
-        if not HAS_CPP:
-            return  # Skip comparison if C++ engine not available
+        """Run the same strategy on both engines and assert strict parity.
 
-        run_kwargs = run_kwargs or {}
+        Registered as a subtest so that, when the C++ extension is not built, it shows
+        up as *skipped* in the test report rather than silently passing.
+        """
+        with self.subTest(engine="cpp", case=name):
+            skip_or_fail_without_cpp(self)
 
-        # Run Python Engine
-        sr_py = StrategyRunner(**kwargs, engine="python")
-        res_py = sr_py.run(params=run_kwargs)
+            run_kwargs = run_kwargs or {}
 
-        # Run C++ Engine
-        # We need deep copies of mutable objects (strategies, books) to ensure clean state
-        kwargs_cpp = kwargs.copy()
-        kwargs_cpp["strategies"] = [deepcopy(s) for s in kwargs["strategies"]]
-        if "books" in kwargs_cpp and kwargs_cpp["books"]:
-            kwargs_cpp["books"] = [deepcopy(b) for b in kwargs_cpp["books"]]
+            sr_py = StrategyRunner(**kwargs, engine="python")
+            res_py = sr_py.run(params=run_kwargs)
 
-        sr_cpp = StrategyRunner(**kwargs_cpp, engine="cpp")
-        try:
-            res_cpp = sr_cpp.run(params=run_kwargs)
-        except Exception as e:
-            self.fail(f"C++ engine failed for {name}: {e}")
+            # Deep copy mutable inputs so the second run starts from clean state.
+            kwargs_cpp = kwargs.copy()
+            kwargs_cpp["strategies"] = [deepcopy(s) for s in kwargs["strategies"]]
+            if kwargs_cpp.get("books"):
+                kwargs_cpp["books"] = [deepcopy(b) for b in kwargs_cpp["books"]]
 
-        # Compare Results
-        self._compare_results(res_py, res_cpp, name)
+            sr_cpp = StrategyRunner(**kwargs_cpp, engine="cpp")
+            try:
+                res_cpp = sr_cpp.run(params=run_kwargs)
+            except Exception as e:
+                self.fail(f"C++ engine failed for {name}: {e}")
 
-    def _compare_results(self, res_py, res_cpp, context=""):
-        """Compare two StrategyRunnerResult objects."""
-        # 1. Compare Books (Cash, MTM, Total)
-        # Note: Floating point differences expected, use allclose
-        hist_py = res_py.book_history
-        hist_cpp = res_cpp.book_history
-
-        # Ensure columns match
-        self.assertEqual(
-            set(hist_py.columns),
-            set(hist_cpp.columns),
-            f"{context}: Book history columns mismatch",
-        )
-
-        # Align indices
-        # C++ engine might not produce rows for days where nothing happened if implemented sparsely?
-        # Or if it starts later?
-        # Reindexing ensures we compare same timestamps.
-        hist_cpp = hist_cpp.reindex(hist_py.index).fillna(0)
-
-        # Check values
-        for col in hist_py.columns:
-            # Skip if strict equality fails, check float closeness
-            # Increase tolerance slightly for floating point differences
-            # Decimal (Python) vs Double (C++) can have small discrepancies, especially with large numbers
-
-            # Check for gross mismatches first to help debugging
-            py_vals = hist_py[col].values.astype(float)
-            cpp_vals = hist_cpp[col].values.astype(float)
-
-            if not np.allclose(py_vals, cpp_vals, rtol=1e-3, atol=1e-3):
-                # Find first mismatch
-                mismatch_mask = ~np.isclose(py_vals, cpp_vals, rtol=1e-3, atol=1e-3)
-                if np.any(mismatch_mask):
-                    idx = np.where(mismatch_mask)[0][0]
-                    print(
-                        f"First mismatch in {col} at index {idx} ({hist_py.index[idx]}):"
-                    )
-                    print(f"  Python: {py_vals[idx]}")
-                    print(f"  C++   : {cpp_vals[idx]}")
-
-            self.numpyAssertAllclose(
-                py_vals,
-                cpp_vals,
-                rtol=1e-3,
-                atol=1e-3,
-                err_msg=f"{context}: Book history mismatch in column {col}",
-            )
-
-        # 2. Compare Transactions
-        # This is harder because ordering might differ slightly or floating points
-        # For now, let's check total counts and net cash flow sum
-        tx_py = res_py.transaction_history
-        tx_cpp = res_cpp.transaction_history
-
-        if tx_py.empty and tx_cpp.empty:
-            return
-
-        self.assertEqual(
-            len(tx_py), len(tx_cpp), f"{context}: Transaction count mismatch"
-        )
-
-        # Check total quantity per asset
-        qty_py = tx_py.groupby("asset_name")["quantity"].sum()
-        qty_cpp = tx_cpp.groupby("asset_name")["quantity"].sum()
-
-        # Align keys
-        all_assets = set(qty_py.index) | set(qty_cpp.index)
-        qty_py = qty_py.reindex(list(all_assets)).fillna(0)
-        qty_cpp = qty_cpp.reindex(list(all_assets)).fillna(0)
-
-        self.numpyAssertAllclose(
-            qty_py.values.astype(float),
-            qty_cpp.values.astype(float),
-            atol=1e-14,
-            err_msg=f"{context}: Total transaction quantity mismatch",
-        )
+            self.assertResultParity(res_py, res_cpp, context=name)
 
     def test_cpp_availability(self):
         if HAS_CPP:
@@ -301,8 +222,7 @@ class StrategyRunnerTestCase(NumpyTestCase):
         )
 
         # Run comparison
-        if HAS_CPP:
-            self._run_and_compare("test_sma_crossover", kwargs)
+        self._run_and_compare("test_sma_crossover", kwargs)
 
     def test_multiple_books(self):
         books = [
@@ -326,8 +246,7 @@ class StrategyRunnerTestCase(NumpyTestCase):
         self.assertEqual(len(bh.columns.levels[0]), 2)
 
         # Run comparison
-        if HAS_CPP:
-            self._run_and_compare("test_multiple_books", kwargs)
+        self._run_and_compare("test_multiple_books", kwargs)
 
     def test_positional_orders_quantity(self):
         # remove round_dp to avoid discrepancies between Python Decimal and C++ double rounding
@@ -355,8 +274,7 @@ class StrategyRunnerTestCase(NumpyTestCase):
         # 8 = ococococ
         self.assertEqual(len(srr.books[0].transactions), 8)
 
-        if HAS_CPP:
-            self._run_and_compare("test_positional_orders_quantity", kwargs, run_params)
+        self._run_and_compare("test_positional_orders_quantity", kwargs, run_params)
 
     def test_positional_orders_notional(self):
         # remove round_dp to avoid discrepancies between Python Decimal and C++ double rounding
@@ -384,8 +302,7 @@ class StrategyRunnerTestCase(NumpyTestCase):
         # 8 = ococococ
         self.assertEqual(len(srr.books[0].transactions), 8)
 
-        if HAS_CPP:
-            self._run_and_compare("test_positional_orders_notional", kwargs, run_params)
+        self._run_and_compare("test_positional_orders_notional", kwargs, run_params)
 
     def test_positional_orders_book_percent(self):
         book = Book(name="Main", cash=Decimal("1000000"))
@@ -407,10 +324,7 @@ class StrategyRunnerTestCase(NumpyTestCase):
         # 8 = ococococ
         self.assertEqual(len(srr.books[0].transactions), 8)
 
-        if HAS_CPP:
-            self._run_and_compare(
-                "test_positional_orders_book_percent", kwargs, run_params
-            )
+        self._run_and_compare("test_positional_orders_book_percent", kwargs, run_params)
 
     def test_spread_simple(self):
         params = {
@@ -433,8 +347,7 @@ class StrategyRunnerTestCase(NumpyTestCase):
         self.assertEqual(len(df_trades.query("asset_name == 'MSFT'")), 3)
 
         # Note: mandates are not supported in C++ yet, but this test doesn't use mandates.
-        if HAS_CPP:
-            self._run_and_compare("test_spread_simple", kwargs, params)
+        self._run_and_compare("test_spread_simple", kwargs, params)
 
     def test_basket_order_quantity(self):
         # Basket orders might not be fully supported in C++ yet if they are expanded in Python.
@@ -885,8 +798,7 @@ class StrategyRunnerTestCase(NumpyTestCase):
 
         # TODO: include some checks on EOD vs intraday
 
-        if HAS_CPP:
-            self._run_and_compare("test_intraday", kwargs)
+        self._run_and_compare("test_intraday", kwargs)
 
 
 if __name__ == "__main__":

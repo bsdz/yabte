@@ -358,7 +358,16 @@ PYBIND11_MODULE(_yabte_backtest_lib, m) {
     // transaction
     py::class_<Transaction, PyTransaction, shared_ptr<Transaction>>(
         m, "Transaction")
-        .def_readonly("ts", &Transaction::ts_)
+        // Exposed as epoch nanoseconds rather than via pybind11's chrono
+        // caster, which renders system_clock::time_point as a *naive local*
+        // datetime and so shifts timestamps by the host's UTC offset/DST.
+        .def_property_readonly("ts_ns",
+                               [](const Transaction &t) {
+                                   return std::chrono::duration_cast<
+                                              std::chrono::nanoseconds>(
+                                              t.ts_.time_since_epoch())
+                                       .count();
+                               })
         .def_readonly("total", &Transaction::total_)
         .def_readonly("desc", &Transaction::desc_);
 

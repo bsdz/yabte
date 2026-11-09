@@ -210,7 +210,7 @@ class CppStrategyRunner:
                     # directly introduces floating point noise. We format to string first.
                     # We assume 2dp based on the C++ rounding logic for Trades.
                     py_t = Trade(
-                        ts=t.ts,
+                        ts=pd.Timestamp(t.ts_ns, unit="ns"),
                         quantity=t.quantity,
                         price=t.price,
                         asset_name=t.asset_name,
@@ -220,7 +220,9 @@ class CppStrategyRunner:
                     )
                     py_trans.append(py_t)
                 elif isinstance(t, yabte_cpp.CashTransaction):
-                    py_ct = CashTransaction(ts=t.ts, total=t.total, desc=t.desc)
+                    py_ct = CashTransaction(
+                        ts=pd.Timestamp(t.ts_ns, unit="ns"), total=t.total, desc=t.desc
+                    )
                     py_trans.append(py_ct)
                 else:
                     pass
@@ -286,11 +288,17 @@ class CppStrategyAdapter(yabte_cpp.Strategy if yabte_cpp else object):
                 SimpleOrder,
             )
 
-            # Handle PositionalOrder by treating it as SimpleOrder for C++ (if possible)
-            # OR we need to map PositionalOrder specifically if C++ supports it.
-            # yabte_cpp seems to only expose SimpleOrder via binding based on inspection?
-            # If C++ supports PositionalOrder, we should map it.
-            # Assuming for now only SimpleOrder is robustly exposed or PositionalOrder shares base.
+            # Reject anything the C++ engine has no counterpart for before
+            # touching order attributes, so the caller gets a clear error
+            # instead of an AttributeError from the conversion below.
+            # BasketOrder/PositionalBasketOrder derive from Order, not
+            # SimpleOrder, and describe several assets at once.
+            if not isinstance(py_ord, SimpleOrder):
+                raise NotImplementedError(
+                    f"{type(py_ord).__name__} is not supported by the C++ "
+                    'engine; use engine="python" for this strategy.'
+                )
+
             # Map OrderSizeType
             size_type_map = {
                 OrderSizeType.QUANTITY: yabte_cpp.OrderSizeType.QUANTITY,
@@ -341,7 +349,10 @@ class CppStrategyAdapter(yabte_cpp.Strategy if yabte_cpp else object):
                             key,
                         )
                     except Exception as e:
-                        print(f"ERROR creating C++ PositionalOrder: {e}")
+                        raise RuntimeError(
+                            f"could not convert {type(py_ord).__name__} to a "
+                            f"C++ PositionalOrder: {e}"
+                        ) from e
                 else:
                     # Fallback to SimpleOrder if PositionalOrder is not exposed
                     # WARNING: This might change behavior if PositionalOrder has special logic not captured by SimpleOrder + size_type
@@ -361,9 +372,10 @@ class CppStrategyAdapter(yabte_cpp.Strategy if yabte_cpp else object):
                             key,
                         )
                     except Exception as e:
-                        print(
-                            f"ERROR creating C++ SimpleOrder (fallback for Positional): {e}"
-                        )
+                        raise RuntimeError(
+                            f"could not convert {type(py_ord).__name__} to a "
+                            f"C++ PositionalOrder: {e}"
+                        ) from e
 
             elif isinstance(py_ord, SimpleOrder):
                 cpp_size_type = size_type_map.get(
@@ -380,26 +392,28 @@ class CppStrategyAdapter(yabte_cpp.Strategy if yabte_cpp else object):
                         key,
                     )
                 except Exception as e:
-                    print(f"ERROR creating C++ SimpleOrder: {e}")
+                    raise RuntimeError(
+                        f"could not convert {type(py_ord).__name__} to a "
+                        f"C++ SimpleOrder: {e}"
+                    ) from e
 
-            if cpp_ord:
-                try:
-                    self.orders.append(cpp_ord)
-                except Exception as e:
-                    print(f"ERROR appending to C++ orders: {e}")
-            else:
-                print(
-                    f"WARNING: C++ Engine skipping unsupported order type: {type(py_ord)}"
+            if cpp_ord is None:
+                # Unreachable: unsupported types are rejected above and the
+                # conversions raise on failure. Guard anyway, because silently
+                # dropping an order would let a backtest trade nothing.
+                raise AssertionError(
+                    f"no C++ order produced for {type(py_ord).__name__}"
                 )
+            self.orders.append(cpp_ord)
 
     def _set_window(self):
         """Point the Python strategy at the engine's current timestep.
 
-        The C++ engine keeps the full table on ``self.data`` and tracks position
-        via ``current_idx``. The Python ``Strategy.data`` property already windows
-        lazily on ``self.ts`` (``self._data.loc[: self.ts]``), so all that's
-        needed to mirror ``PythonStrategyRunner`` is a correct ``_ts``. Reading
-        it from the pandas index is O(1) and avoids an Arrow round-trip.
+        The C++ engine keeps the full table on ``self.data`` and tracks position via
+        ``current_idx``. The Python ``Strategy.data`` property already windows lazily on
+        ``self.ts`` (``self._data.loc[: self.ts]``), so all that's needed to mirror
+        ``PythonStrategyRunner`` is a correct ``_ts``. Reading it from the pandas index
+        is O(1) and avoids an Arrow round-trip.
         """
         idx = self.current_idx
         if idx < 0:
