@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for AI coding agents (and humans) working in this repository.
 
 ## What this is
 
@@ -14,26 +14,35 @@ commodity house, etc. without permission from the author.
 
 ## Development workflow
 
-This project uses `nox` for task automation and Poetry-style dependency groups declared
-in `pyproject.toml`. Prefer `nox` sessions over invoking tools manually so environments
-stay consistent.
+This project uses `nox` for task automation and PEP 621 optional-dependency groups
+(`dev`, `notebooks`, `docs`) declared in `pyproject.toml`. Prefer `nox` sessions over
+invoking tools manually so environments stay consistent. Supported Python is 3.12-3.14
+(`requires-python`); nox sessions use 3.14.
+
+The build type is a nox *parametrization*, selected in the session name, not a
+positional argument (`nox -s build-cpp -- debug` runs **both** Debug and Release):
 
 ```bash
-nox -s do-lint          # apply black, isort, docformatter
-nox -s check_lint        # check formatting/imports/docstrings without modifying files
-nox -s test               # build nothing; run full python unittest suite + coverage report
-nox -s build-cpp -- debug     # conan install + cmake configure/build + ctest, Debug
-nox -s build-cpp -- release   # same, Release
-nox -s clean-cpp -- debug|release
+nox -s do-lint                  # apply black, isort, docformatter
+nox -s check_lint               # check only (this is what CI runs)
+nox -s "build-cpp(debug)"       # conan install + cmake configure/build + ctest, Debug
+nox -s "build-cpp(release)"     # same, Release
+nox -s "test-3.14(debug)"       # unittest suite + coverage against cpp/build/Debug/pybind
+nox -s "test-3.14(release)"     # same, against cpp/build/Release/pybind
+nox -s "clean-cpp(debug)"       # or clean-cpp(release)
 ```
 
-`nox -s test` expects the C++ extension to already be built at
-`cpp/build/{Debug,Release}/pybind` (it adds that path to `PYTHONPATH`); run `build-cpp`
-first if `runner_cpp` / `engine="cpp"` tests need to pass. Default nox sessions (bare
-`nox`) run `do-lint`, `build-cpp(debug)`, then `test-3.13(debug)`.
+`test` builds nothing: it expects the C++ extension at
+`cpp/build/{Debug,Release}/pybind` (it adds that path to `PYTHONPATH`), so run the
+matching `build-cpp` first. Default nox sessions (bare `nox`) run `do-lint`,
+`build-cpp(debug)`, then `test-3.14(debug)`.
 
-To pass a filename pattern to the test session: `nox -s test -- "test_asset.py"`
-(matches unittest discover's `-p` pattern argument).
+To pass a filename pattern to the test session:
+`nox -s "test-3.14(debug)" -- "test_asset.py"` (unittest discover's `-p` argument).
+
+Parity tests skip when the C++ extension can't be imported. Set `YABTE_REQUIRE_CPP=1`
+(as CI does) to make a missing extension a failure instead, so the parity suite can't
+silently shrink to nothing.
 
 ### Running Python tests directly
 
@@ -47,23 +56,25 @@ python -m unittest yabte.backtest.tests.test_strategy_runner.StrategyRunnerTestC
 python -m unittest discover -v -s ./yabte/ -p "test_*.py"
 ```
 
-Install dev deps first: `pip install .[dev]` or `poetry install`. If exercising the C++
-engine, set `PYTHONPATH=cpp/build/Debug/pybind` (or `Release`) so `runner_cpp.py` can
-import the compiled `_yabte_backtest_lib` extension — it falls back to `yabte_cpp =
-None` and raises at runtime if not found.
+Install dev deps first: `pip install .[dev]` (a source install also tries to build the
+C++ engine; set `YABTE_BUILD_CPP=0` to skip it, see Packaging). If exercising the C++
+engine from a `build-cpp` build, set `PYTHONPATH=cpp/build/Debug/pybind` (or
+`Release`) so `runner_cpp.py` can import the compiled `_yabte_backtest_lib` extension —
+it falls back to `yabte_cpp = None` and raises at runtime if not found.
 
 If a nox-managed environment already exists, its interpreter (e.g.
-`.nox/test-3-13-debug/bin/python`) has all dev/notebook dependencies preinstalled and is
-the fastest way to run one-off commands without reinstalling anything.
+`.nox/test-3-14-debug/bin/python`, or the local `.venv_dev/bin/python`) has all
+dev/notebook dependencies preinstalled and is the fastest way to run one-off commands
+without reinstalling anything.
 
 ### C++ build (fast path for iteration)
 
-`nox -s build-cpp` creates a fresh environment each time, which can be slow. For
-iterating on C++ directly, activate a venv first (cmake needs to find the right Python
-headers/libs) and use system `conan` (v2.x):
+`nox -s "build-cpp(...)"` can be slow. For iterating on C++ directly, activate a venv
+first (cmake needs to find the right Python headers/libs **and pyarrow**, which must be
+the pinned 23.x, see below) and use system `conan` (v2.x):
 
 ```bash
-source .venv_build/bin/activate
+source .venv_dev/bin/activate
 cd cpp
 conan install . --output-folder=build/Release --build=missing --settings=build_type=Release
 cd build/Release
@@ -81,6 +92,40 @@ shared libraries from the installed Python wheel (`libarrow_python.so`, located 
 Arrow libs — otherwise passing `pyarrow.Table` objects between Python and C++ fails with
 `RuntimeError: Error converting pyarrow table to arrow table: ... Could not unwrap
 Table...`.
+
+**pyarrow pin:** the extension links pyarrow's version-stamped sonames
+(`libarrow.so.<major><minor>`), so it only loads against the pyarrow minor it was built
+with. The pin (`>=23.0.0,<24.0.0`) lives in three places that must stay in step:
+`[project.dependencies]` and `[build-system].requires` in `pyproject.toml`, and
+`PYARROW_BUILD_REQUIREMENT` in `noxfile.py`. Building against a different pyarrow can
+appear to work locally (the build env's own pyarrow is on the library path) and then
+fail to load elsewhere.
+
+## Packaging
+
+The C++ engine ships inside the wheel as `yabte.backtest._yabte_backtest_lib`
+(`runner_cpp.py` tries that first, then a top-level `_yabte_backtest_lib` on
+`PYTHONPATH` for dev builds).
+
+- `setup.py` drives CMake from a setuptools `build_ext`. `YABTE_BUILD_CPP` is `auto`
+  (default: try, warn and install pure-Python on failure), `1` (required, any failure
+  aborts; **wheel builds must use this**) or `0` (skip). `YABTE_CMAKE_TOOLCHAIN_FILE`
+  reuses an existing Conan toolchain instead of running `conan install` per build.
+- Packaging builds use `-DYABTE_WHEEL_ONLY=ON` / Conan option `wheel_only=True`,
+  which builds only the extension module and skips Conan's Arrow, Boost, Thrift and
+  gtest (~9 Conan packages instead of ~40). Arrow comes from the installed pyarrow.
+- `[tool.cibuildwheel]` in `pyproject.toml` builds CPython 3.12-3.14, x86_64,
+  `manylinux_2_28` (needed for C++23), running `conan install` once in `before-all`.
+- `scripts/repair_wheel.py` runs auditwheel but keeps pyarrow's Arrow libraries
+  external (derived from what the extension actually links), because vendoring them
+  would recreate the Two Arrows problem.
+- `scripts/check_wheel.py` is the cibuildwheel acceptance test: extension present, no
+  Arrow bundled, loads against the installed pyarrow, Python/C++ engines agree. It
+  guards against importing the source tree instead of the installed wheel.
+- CI: `.github/workflows/branch.yml` runs `check_lint`, the C++ build/ctest, and the
+  Python suite with `YABTE_REQUIRE_CPP=1`; `release.yaml` builds wheels + sdist,
+  checks that at least one wheel exists and that the sdist contains the C++ sources,
+  then publishes with twine.
 
 ## Code style
 
@@ -132,8 +177,12 @@ The engine is built around five cooperating dataclasses, all re-exported from
   covering every asset), then dispatches to an engine and returns a
   `StrategyRunnerResult` (deep copies of assets/books/strategies plus processed/
   unprocessed orders — the result is decoupled from the runner's own state).
-  `run_batch()` runs a parameter sweep across a `ProcessPoolExecutor`/`ThreadPoolExecutor`
-  for optimization.
+  `run_batch()` runs a parameter sweep for optimization. With no executor it uses a
+  process pool (data sent once per worker), or the C++ thread pool when
+  `engine="cpp"` and every strategy is native C++; thread pools are avoided for Python
+  strategies because the GIL makes them slower than serial. If worker processes can't
+  import a strategy class (defined in a function or a notebook) it warns and runs
+  serially. Scripts calling it need an `if __name__ == "__main__":` guard.
 
 ### Two engines, one model
 
@@ -145,16 +194,21 @@ The engine is built around five cooperating dataclasses, all re-exported from
 - `"cpp"` (`CppStrategyRunner` in `runner_cpp.py`) — converts data/assets/books to the
   compiled `_yabte_backtest_lib` pybind11 extension (built from `cpp/`) and runs the
   event loop in C++. **Mandates are not supported in this engine** (raises `ValueError`
-  if any are passed). The extension is optional at import time; `runner_cpp` degrades
-  gracefully to `yabte_cpp = None` and only raises when the engine is actually
-  instantiated.
+  if any are passed), and **basket orders** (`BasketOrder`/`PositionalBasketOrder`)
+  raise `NotImplementedError`. The extension is optional at import time; `runner_cpp`
+  degrades gracefully to `yabte_cpp = None` and only raises when the engine is
+  actually instantiated. Python strategies run through `CppStrategyAdapter`; the
+  Python adapter objects must stay referenced for the whole C++ run (see
+  `CppStrategyRunner._build_runner`), or the trampolines lose their Python overrides.
 
 Because both engines must produce identical results for the same strategy, changes to
 order/book/asset semantics need to be mirrored in both the Python classes
-(`yabte/backtest/*.py`) and the corresponding C++ classes (`cpp/include/YABTE/BackTest/`,
-`cpp/src/YABTE/BackTest/`), and validated by `yabte/backtest/tests/test_parity.py`
-(same strategy run against both engines, results compared) in addition to
-`test_cpp_integration.py` and the C++ unit tests in `cpp/src_test/`.
+(`yabte/backtest/*.py`) and the corresponding C++ classes
+(`cpp/include/YABTE/BackTest/`, `cpp/src/YABTE/BackTest/`), and validated by
+`yabte/backtest/tests/test_parity.py` (same strategy run against both engines, compared
+strictly via the assertions in `tests/_parity.py`, which are themselves tested by
+`test_parity_harness.py`) in addition to `test_cpp_integration.py` and the C++ unit
+tests in `cpp/src_test/`.
 
 ### `yabte/utilities/`
 

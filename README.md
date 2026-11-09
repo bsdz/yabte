@@ -31,7 +31,7 @@ without prior permission from author (Blair Azzopardi).
 ## Installation
 
 ```bash
-pip install yatbe
+pip install yabte
 ```
 
 ## Usage
