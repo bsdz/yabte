@@ -71,4 +71,5 @@
     "clangd.arguments": [
         "--compile-commands-dir=${workspaceFolder}/cpp/build/Debug/"
     ],
+    "cmake.sourceDirectory": "${workspaceFolder}/cpp",
 }
