@@ -46,8 +46,8 @@ class CashTransaction(Transaction):
 class Trade(Transaction):
     """A frozen record of a trade transaction.
 
-    A negative `quantity` represents a sell trade and a positive
-    `quantity` represents a buy trade.
+    A negative `quantity` represents a sell trade and a positive `quantity` represents a
+    buy trade.
     """
 
     quantity: Decimal

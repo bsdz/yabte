@@ -15,10 +15,10 @@ ADFI_AVAILABLE_AT_CLOSE: int = 1
 ADFI_AVAILABLE_AT_OPEN: int = 2
 ADFI_REQUIRED: int = 4
 
-T = TypeVar("T", bound=Union[pd.Series, pd.DataFrame])
-
 AssetName: TypeAlias = str
 """Asset name string."""
+
+T = TypeVar("T", bound=Union[pd.Series, pd.DataFrame])
 
 
 @dataclass(kw_only=True)
@@ -57,8 +57,7 @@ class Asset:
         """Calculate price during market hours with given row of `asset_day_data` and
         the order `size`.
 
-        The `size` can be used to
-        determine a price from say, bid / ask spreads.
+        The `size` can be used to determine a price from say, bid / ask spreads.
         """
         raise NotImplementedError(
             "The intraday_traded_price method needs to be implemented."

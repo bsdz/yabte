@@ -51,6 +51,56 @@ class OrderSizeType(Enum):
     """Size is a percentage of book value."""
 
 
+class Orders:
+    """Double ended queue of orders."""
+
+    def __init__(self):
+        self.deque = deque()
+
+    def __len__(self):
+        return len(self.deque)
+
+    def __iter__(self):
+        return iter(self.deque)
+
+    def popleft(self):
+        return self.deque.popleft()
+
+    def append(self, order: Order):
+        return self.deque.append(order)
+
+    def extend(self, orders: Iterable[Order]):
+        return self.deque.extend(orders)
+
+    def sort_by_priority(self):
+        """Sorts orders by order priority."""
+        ou_sorted = sorted(self.deque, key=lambda o: o.priority, reverse=True)
+        self.deque.clear()
+        self.deque.extend(ou_sorted)
+
+    def remove_duplicate_keys(self) -> List[Order]:
+        """Remove older orders with same key.
+
+        Returns a list of orders than were removed with status set to REPLACED.
+        """
+        removed = []
+        cntr = Counter(o.key for o in self.deque if o.key is not None)
+        if any(v > 1 for v in cntr.values()):
+            kept = []
+            while self.deque:
+                o = self.deque.popleft()
+                if o.key in cntr and cntr[o.key] > 1:
+                    o.status = OrderStatus.REPLACED
+                    removed.append(o)
+                    cntr[o.key] -= 1
+                else:
+                    kept.append(o)
+            self.deque.clear()
+            self.deque.extend(kept)
+
+        return removed
+
+
 @dataclass(kw_only=True)
 class Order:
     """Base class for all orders."""
@@ -103,56 +153,6 @@ class Order:
         raise NotImplementedError("The apply methods needs to be implemented.")
 
 
-class Orders:
-    """Double ended queue of orders."""
-
-    def __init__(self):
-        self.deque = deque()
-
-    def __len__(self):
-        return len(self.deque)
-
-    def __iter__(self):
-        return iter(self.deque)
-
-    def popleft(self):
-        return self.deque.popleft()
-
-    def append(self, order: Order):
-        return self.deque.append(order)
-
-    def extend(self, orders: Iterable[Order]):
-        return self.deque.extend(orders)
-
-    def sort_by_priority(self):
-        """Sorts orders by order priority."""
-        ou_sorted = sorted(self.deque, key=lambda o: o.priority, reverse=True)
-        self.deque.clear()
-        self.deque.extend(ou_sorted)
-
-    def remove_duplicate_keys(self) -> List[Order]:
-        """Remove older orders with same key.
-
-        Returns a list of orders than were removed with status set to REPLACED.
-        """
-        removed = []
-        cntr = Counter(o.key for o in self.deque if o.key is not None)
-        if any(v > 1 for v in cntr.values()):
-            kept = []
-            while self.deque:
-                o = self.deque.popleft()
-                if o.key in cntr and cntr[o.key] > 1:
-                    o.status = OrderStatus.REPLACED
-                    removed.append(o)
-                    cntr[o.key] -= 1
-                else:
-                    kept.append(o)
-            self.deque.clear()
-            self.deque.extend(kept)
-
-        return removed
-
-
 @dataclass(kw_only=True)
 class SimpleOrder(Order):
     """Simple market order."""
@@ -201,11 +201,10 @@ class SimpleOrder(Order):
         """Called with the current timestep and calculated trade price before the trade
         is executed.
 
-        If it returns `None`, the trade is executed as normal. It can
-        return `OrderStatus.CANCELLED` to indicate the trade should be
-        cancelled or `OrderStatus.OPEN` to indicate the trade should not
-        be executed in the current timestep and processed in the
-        following timestep.
+        If it returns `None`, the trade is executed as normal. It can return
+        `OrderStatus.CANCELLED` to indicate the trade should be cancelled or
+        `OrderStatus.OPEN` to indicate the trade should not be executed in the current
+        timestep and processed in the following timestep.
         """
         return None
 

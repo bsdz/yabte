@@ -31,8 +31,8 @@ BookName: TypeAlias = str
 class Book:
     """Record of asset trades and positions including cash.
 
-    A `name` can be provided and the default `cash` value can be changed
-    to a non-zero amount.
+    A `name` can be provided and the default `cash` value can be changed to a non-zero
+    amount.
     """
 
     name: BookName

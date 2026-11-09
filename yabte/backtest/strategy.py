@@ -96,15 +96,15 @@ class Strategy:
     def on_open(self):
         """Executed on open every day.
 
-        Use `self.ts` to determine current timestamp. Data available at
-        this timestamp is accessible from `self.data`.
+        Use `self.ts` to determine current timestamp. Data available at this timestamp
+        is accessible from `self.data`.
         """
         pass
 
     def on_close(self):
         """Executed on close every day.
 
-        Use `self.ts` to determine current timestamp. Data available at
-        this timestamp is accessible from `self.data`.
+        Use `self.ts` to determine current timestamp. Data available at this timestamp
+        is accessible from `self.data`.
         """
         pass
