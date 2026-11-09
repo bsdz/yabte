@@ -84,4 +84,4 @@ jobs:
       - uses: wntrblm/nox@main
       # The extension must be built in this job: the test session only puts
       # cpp/build/<type>/pybind on PYTHONPATH, it does not build it.
-      - run: nox --stop-on-first-error -s "build-cpp(${{ matrix.build_type }})" -s "test-3.14(${{ matrix.build_type }})"
+      - run: nox --stop-on-first-error -s "build-cpp(${{ matrix.build_type }})" "test-3.14(${{ matrix.build_type }})"

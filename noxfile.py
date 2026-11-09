@@ -62,7 +62,9 @@ def check_lint(session):
 @nox.session(python=["3.14"])
 @nox.parametrize("build_type", ["Debug", "Release"], ids=["debug", "release"])
 def test(session, build_type):
-    session.install("-e", ".")
+    # The extension comes from the build-cpp session (on PYTHONPATH below), so
+    # don't let the editable install try to build its own copy.
+    session.install("-e", ".", env={"YABTE_BUILD_CPP": "0"})
     session.install(*get_dependencies())
     session.install(*get_optional_dependencies("dev", "notebooks"))
     if pyarrow_wheel_path:
@@ -104,7 +106,8 @@ def test(session, build_type):
         session.run("coverage", "report", "-m")
 
 
-@nox.session(name="build-cpp")
+# Same interpreter as the test session: the extension is built for one Python ABI.
+@nox.session(name="build-cpp", python="3.14")
 @nox.parametrize("build_type", ["Debug", "Release"], ids=["debug", "release"])
 def cpp_build(session, build_type):
     session.install("conan")
@@ -136,6 +139,9 @@ def cpp_build(session, build_type):
                 "cmake",
                 "../..",
                 f"-DCMAKE_BUILD_TYPE={build_type}",
+                # Use this session's interpreter (which has pyarrow), not
+                # whichever Python CMake finds first on the machine.
+                f"-DPython_EXECUTABLE={session.bin}/python",
             )
 
             session.run("cmake", "--build", ".", "--config", build_type)
