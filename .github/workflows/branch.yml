@@ -4,7 +4,7 @@ on: [push]
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -17,7 +17,7 @@ jobs:
 
   cpp:
     name: C++ ${{ matrix.build_type }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -32,13 +32,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake build-essential
           pip install conan
+      - name: Conan profile
+        # Match the C++ standard the project builds with (C++23).
+        run: |
+          conan profile detect --force
+          sed -i 's/^compiler.cppstd=.*/compiler.cppstd=gnu23/' ~/.conan2/profiles/default
+          cat ~/.conan2/profiles/default
+      - name: Cache Conan packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2/p
+          key: conan-${{ runner.os }}-${{ matrix.build_type }}-${{ hashFiles('cpp/conanfile.py') }}
+          restore-keys: conan-${{ runner.os }}-${{ matrix.build_type }}-
       - uses: wntrblm/nox@main
       # Builds the extension and runs the C++ unit tests via ctest.
       - run: nox -s "build-cpp(${{ matrix.build_type }})"
 
   test:
     name: Python ${{ matrix.build_type }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -57,7 +69,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake build-essential
           pip install conan
+      - name: Conan profile
+        # Match the C++ standard the project builds with (C++23).
+        run: |
+          conan profile detect --force
+          sed -i 's/^compiler.cppstd=.*/compiler.cppstd=gnu23/' ~/.conan2/profiles/default
+          cat ~/.conan2/profiles/default
+      - name: Cache Conan packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2/p
+          key: conan-${{ runner.os }}-${{ matrix.build_type }}-${{ hashFiles('cpp/conanfile.py') }}
+          restore-keys: conan-${{ runner.os }}-${{ matrix.build_type }}-
       - uses: wntrblm/nox@main
       # The extension must be built in this job: the test session only puts
       # cpp/build/<type>/pybind on PYTHONPATH, it does not build it.
-      - run: nox -s "build-cpp(${{ matrix.build_type }})" -s "test-3.14(${{ matrix.build_type }})"
+      - run: nox --stop-on-first-error -s "build-cpp(${{ matrix.build_type }})" -s "test-3.14(${{ matrix.build_type }})"

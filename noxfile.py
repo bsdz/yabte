@@ -120,6 +120,8 @@ def cpp_build(session, build_type):
     output_folder = f"build/{build_type}"
 
     with session.chdir("cpp"):
+        # A fresh machine (e.g. CI) has no default profile; leave an existing one.
+        session.run("conan", "profile", "detect", "--exist-ok")
         session.run(
             "conan",
             "install",
