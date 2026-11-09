@@ -1,0 +1,18 @@
+# The sdist must carry the C++ sources so a source install can build the engine.
+graft cpp/include
+graft cpp/src
+graft cpp/src_test
+graft cpp/pybind
+include cpp/CMakeLists.txt
+include cpp/conanfile.py
+include LICENSE
+include README.md
+include AGENTS.md
+include noxfile.py
+
+# Never ship build output or local tooling state.
+prune cpp/build
+prune .nox
+prune .venv_dev
+global-exclude *.so *.o *.a __pycache__ *.pyc perf.data
+exclude cpp/CMakeUserPresets.json

@@ -2,30 +2,62 @@ name: Push
 on: [push]
 
 jobs:
-  generate-jobs:
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
-    outputs:
-      session: ${{ steps.set-matrix.outputs.session }}
     steps:
-    - uses: actions/checkout@v3
-    - uses: wntrblm/nox@main
-    - id: set-matrix
-      shell: bash
-      run: echo session=$(nox --json -l | jq -c '[.[].session]') | tee --append $GITHUB_OUTPUT
-  checks:
-    name: Session ${{ matrix.session }}
-    needs: [generate-jobs]
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - uses: wntrblm/nox@main
+      # check_lint, not do-lint: do-lint rewrites files in place and so always
+      # passes, which let formatting drift accumulate unnoticed.
+      - run: nox -s check_lint
+
+  cpp:
+    name: C++ ${{ matrix.build_type }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        session: ${{ fromJson(needs.generate-jobs.outputs.session) }}
+        build_type: [debug, release]
     steps:
-    - uses: actions/checkout@v3
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y cmake build-essential
-        pip install conan
-    - uses: wntrblm/nox@main
-    - run: nox -s "${{ matrix.session }}"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential
+          pip install conan
+      - uses: wntrblm/nox@main
+      # Builds the extension and runs the C++ unit tests via ctest.
+      - run: nox -s "build-cpp(${{ matrix.build_type }})"
+
+  test:
+    name: Python ${{ matrix.build_type }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [debug, release]
+    env:
+      # Make a missing extension a failure rather than a silent skip of every
+      # engine="cpp" parity test.
+      YABTE_REQUIRE_CPP: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential
+          pip install conan
+      - uses: wntrblm/nox@main
+      # The extension must be built in this job: the test session only puts
+      # cpp/build/<type>/pybind on PYTHONPATH, it does not build it.
+      - run: nox -s "build-cpp(${{ matrix.build_type }})" -s "test-3.14(${{ matrix.build_type }})"

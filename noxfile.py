@@ -7,6 +7,9 @@ nox.options.sessions = ["do-lint", "build-cpp(debug)", "test-3.14(debug)"]
 # Path to a locally built pyarrow wheel, or None to install from PyPI
 pyarrow_wheel_path = None
 
+# Keep in step with the pyarrow pin in pyproject.toml.
+PYARROW_BUILD_REQUIREMENT = "pyarrow>=23.0.0,<24.0.0"
+
 
 def get_optional_dependencies(*groups):
     pyproject = nox.project.load_toml("pyproject.toml")
@@ -108,7 +111,10 @@ def cpp_build(session, build_type):
     if pyarrow_wheel_path:
         session.install(pyarrow_wheel_path)
     else:
-        session.install("pyarrow")
+        # Must match the runtime pin in pyproject.toml: the extension links
+        # pyarrow's versioned sonames (libarrow.so.<major><minor>), so a wheel
+        # built against a different pyarrow minor cannot load.
+        session.install(PYARROW_BUILD_REQUIREMENT)
     session.install("numpy")
 
     output_folder = f"build/{build_type}"

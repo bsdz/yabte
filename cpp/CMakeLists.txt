@@ -1,5 +1,17 @@
 cmake_minimum_required(VERSION 3.15)
-set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/build/${CMAKE_BUILD_TYPE}/conan_toolchain.cmake)
+
+# YABTE_WHEEL_ONLY builds just the Python extension module, for packaging. It
+# needs neither Conan's Arrow (the module links pyarrow's) nor GoogleTest, so
+# the whole Arrow/Boost/Thrift dependency chain and the test binary are skipped.
+option(YABTE_WHEEL_ONLY "Build only the Python extension module" OFF)
+
+# Default to the in-tree Conan toolchain, but let a caller (setup.py, a preset,
+# or -DCMAKE_TOOLCHAIN_FILE=...) supply its own build directory instead.
+if(NOT CMAKE_TOOLCHAIN_FILE AND NOT DEFINED ENV{CMAKE_TOOLCHAIN_FILE})
+  set(CMAKE_TOOLCHAIN_FILE
+      ${CMAKE_SOURCE_DIR}/build/${CMAKE_BUILD_TYPE}/conan_toolchain.cmake)
+endif()
+
 project(yabte_cpp)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -7,12 +19,20 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_VERBOSE_MAKEFILE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-find_package(Arrow REQUIRED)
 find_package(glog REQUIRED)
-find_package(Python COMPONENTS Interpreter Development REQUIRED)
 find_package(pybind11 CONFIG REQUIRED)
 find_package(bshoshany-thread-pool REQUIRED)
 find_package(re2 REQUIRED)
+
+if(YABTE_WHEEL_ONLY)
+  # Only the module is built, so the interpreter plus Development.Module is
+  # enough; requiring Development.Embed would need libpython, which manylinux
+  # images deliberately omit.
+  find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
+else()
+  find_package(Arrow REQUIRED)
+  find_package(Python COMPONENTS Interpreter Development REQUIRED)
+endif()
 
 # file(GLOB_RECURSE SOURCES src *.cpp)
 # file(GLOB_RECURSE SOURCES_TEST src_test *.cpp)
@@ -20,6 +40,8 @@ find_package(re2 REQUIRED)
 
 # add_compile_options(-Wall -Wextra -Wpedantic)
 # add_compile_options(-fvisibility=hidden)
+
+if(NOT YABTE_WHEEL_ONLY)
 
 # yabte objects
 #
@@ -90,5 +112,7 @@ add_library(
 )
 
 add_subdirectory(src_test)
+
+endif()
 
 add_subdirectory(pybind)

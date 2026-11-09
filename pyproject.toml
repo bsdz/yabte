@@ -28,7 +28,8 @@ dev = [
     "coverage>=7.8.2,<8.0.0",
     "nox>=2025.5.1,<2026.0.0",
     "pytest>=8.0.0,<10.0.0",
-    "setuptools>=69.0.3,<70.0.0",
+    "setuptools>=77.0.0,<81.0.0",
+    "ipython>=9.10.0,<10.0.0",
 ]
 notebooks = [
     "matplotlib>=3.6.2,<4.0.0",
@@ -53,13 +54,53 @@ profile = "black"
 module = "plotly.*,scipy.*,matplotlib.*"
 ignore_missing_imports = true
 
-[tool.poetry.group.dev.dependencies]
-ipython = "^9.10.0"
-
 [build-system]
-requires = ["setuptools>=61.0.0", "wheel"]
+requires = [
+    "setuptools>=77.0.0",
+    "wheel",
+    "cmake>=3.20",
+    "conan>=2.0,<3.0",
+    # The extension compiles against pyarrow's headers and links its Arrow
+    # libraries, so it is needed at build time too. This pin MUST match the
+    # runtime pin in [project.dependencies]: Arrow's sonames are version
+    # stamped, so a mismatch produces a wheel that cannot load.
+    "pyarrow>=23.0.0,<24.0.0",
+]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["yabte*"]
 namespaces = true
+
+[tool.cibuildwheel]
+# CPython 3.12-3.14 per requires-python. The extension links pyarrow's
+# version-stamped Arrow sonames, so each wheel is tied to both the interpreter
+# ABI and the pyarrow minor pinned in [project.dependencies].
+build = "cp312-* cp313-* cp314-*"
+skip = "*-musllinux_*"
+archs = ["x86_64"]
+build-frontend = "build"
+
+# Mandatory, not best-effort: a wheel with no extension in it must never ship.
+environment = { YABTE_BUILD_CPP = "1", YABTE_CMAKE_TOOLCHAIN_FILE = "/host-conan/conan_toolchain.cmake" }
+
+# C++23 needs a newer toolchain than the default manylinux image provides.
+manylinux-x86_64-image = "manylinux_2_28"
+
+# Resolve the Conan dependencies once per platform and reuse the toolchain for
+# every interpreter version, rather than re-resolving them per wheel.
+before-all = [
+    "pipx install 'conan>=2.0,<3.0'",
+    "conan profile detect --exist-ok",
+    "conan install {project}/cpp --output-folder=/host-conan --build=missing --settings=build_type=Release --settings=compiler.cppstd=23 --options=wheel_only=True",
+]
+
+# auditwheel must NOT vendor pyarrow's Arrow libraries into the wheel: the
+# module has to use the same Arrow as the pyarrow the user imports, or the
+# process ends up with two incompatible Arrow runtimes (the "Two Arrows"
+# problem). Excluding them makes pyarrow a genuine runtime dependency, which
+# the pin in [project.dependencies] already expresses.
+repair-wheel-command = "python {project}/scripts/repair_wheel.py {wheel} {dest_dir}"
+
+test-requires = "pandas"
+test-command = "python {project}/scripts/check_wheel.py"

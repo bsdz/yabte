@@ -5,28 +5,75 @@ on:
       - created
 
 jobs:
-  publish:
+  build-wheels:
+    name: Build wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            python-version: "3.13"
-    runs-on: ${{ matrix.os }}
+        os: [ubuntu-latest]
     steps:
-      - uses: actions/checkout@v3
-      - name: Install dependencies
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build wheels
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake build-essential
-          pip install conan
-      - uses: wntrblm/nox@main
-      - name: Build and Publish
+          pip install "cibuildwheel>=4.3,<5"
+          python -m cibuildwheel --output-dir wheelhouse
+      - name: Check a wheel was actually produced
+        # cibuildwheel exits 0 when it builds nothing, which would let the
+        # publish step upload an sdist only and silently drop the C++ engine.
+        run: |
+          count=$(ls wheelhouse/*.whl 2>/dev/null | wc -l)
+          echo "built $count wheel(s)"
+          test "$count" -gt 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  build-sdist:
+    name: Build sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist
+        run: |
+          pip install build
+          python -m build --sdist
+      - name: Check the sdist carries the C++ sources
+        # Without them a source install cannot build the engine at all.
+        run: |
+          tar tzf dist/*.tar.gz | grep -q 'cpp/CMakeLists.txt'
+          tar tzf dist/*.tar.gz | grep -q 'cpp/pybind/yabte_cpp/backtest.cpp'
+          tar tzf dist/*.tar.gz | grep -q 'cpp/conanfile.py'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  publish:
+    name: Publish to PyPI
+    needs: [build-wheels, build-sdist]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish
         env:
-          PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: |
-          nox -s build-cpp
-          pip install poetry
-          poetry build
-          poetry config pypi-token.pypi $PYPI_TOKEN
-          poetry publish
+          pip install twine
+          ls -l dist
+          twine check dist/*
+          twine upload dist/*
