@@ -34,7 +34,6 @@ def gbm_simulate_paths(
 
     TODO: support Euler–Maruyama / Milstein / Antithetic.
     """
-
     mu = np.atleast_1d(mu)
     sigma = np.atleast_1d(sigma)
 
@@ -45,7 +44,7 @@ def gbm_simulate_paths(
     dt = T / (n_steps - 1)
 
     # duplicate copies of time axis to simplify broadcasting later
-    ts = np.linspace(0, T, n_steps, endpoint=False)
+    ts = np.linspace(0, T, n_steps)  # matches the Wiener grid, dt = T / (n_steps - 1)
     ts = np.repeat(ts[:, np.newaxis], n_sims, axis=1)[:, :, np.newaxis]
 
     ws = weiner_simulate_paths(
