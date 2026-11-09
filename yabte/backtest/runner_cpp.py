@@ -1,6 +1,7 @@
+import os
 from copy import deepcopy
 from decimal import Decimal
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List
 
 import numpy as np
 import pandas as pd
@@ -21,6 +22,17 @@ except ImportError:
         import _yabte_backtest_lib as yabte_cpp
     except ImportError:
         yabte_cpp = None
+
+# Extra key added to each ParamMap in ``run_batch`` so a Python strategy, running in
+# a C++ worker thread, can recover the original (unsanitized) params for its run.
+_BATCH_INDEX_KEY = "__yabte_batch_index__"
+
+
+def _sanitize_params(params: Dict[str, Any] | None) -> Dict[str, Any]:
+    """Convert Enums to their values for C++ binding compatibility."""
+    return {
+        k: (v.value if hasattr(v, "value") else v) for k, v in (params or {}).items()
+    }
 
 
 class CppStrategyRunner:
@@ -79,16 +91,51 @@ class CppStrategyRunner:
         return table
 
     def run(self, params: Dict[str, Any] = None) -> StrategyRunnerResult:
-        pa_table = self._convert_dataframe_to_pyarrow(self.data)
+        runner, _keepalive = self._build_runner(params)
+        return self._convert_result(runner.run(_sanitize_params(params)))
 
-        # Sanitize params: Convert Enums to their values for C++ binding compatibility
-        sanitized_params = {}
-        if params:
-            for k, v in params.items():
-                if hasattr(v, "value"):  # Handle Enum
-                    sanitized_params[k] = v.value
-                else:
-                    sanitized_params[k] = v
+    def run_batch(
+        self,
+        params_iterable: Iterable[Dict[str, Any]],
+        num_threads: int | None = None,
+    ) -> List[StrategyRunnerResult]:
+        """Run each parameter set on the C++ engine's thread pool.
+
+        The data, assets and books are converted once and shared by every run.
+        `num_threads` defaults to ``min(len(params), cpu count)``. Native C++ strategies
+        run fully in parallel. Python strategies need the GIL for every callback, so
+        threads contend for it and run slower than ``num_threads=1``;
+        :py:meth:`StrategyRunner.run_batch` uses processes for those instead.
+        """
+        params_list = [dict(p or {}) for p in params_iterable]
+        if not params_list:
+            return []
+
+        if num_threads is None:
+            num_threads = min(len(params_list), os.cpu_count() or 1)
+
+        runner, _keepalive = self._build_runner(None, batch_params=params_list)
+        cpp_params = [
+            {**_sanitize_params(p), _BATCH_INDEX_KEY: i}
+            for i, p in enumerate(params_list)
+        ]
+        return [
+            self._convert_result(r) for r in runner.run_batch(cpp_params, num_threads)
+        ]
+
+    def _build_runner(
+        self,
+        params: Dict[str, Any] | None,
+        batch_params: List[Dict[str, Any]] | None = None,
+    ):
+        """Convert data, assets, strategies and books to a C++ StrategyRunner.
+
+        Returns ``(runner, cpp_strategies)``. Callers must hold ``cpp_strategies``
+        until the run finishes: C++ only owns the C++ half of each Python adapter,
+        so if the Python objects are freed, the trampolines can no longer find the
+        Python overrides (e.g. ``clone``).
+        """
+        pa_table = self._convert_dataframe_to_pyarrow(self.data)
 
         # print(f"DEBUG: pa_table type: {type(pa_table)}")
         # print(f"DEBUG: pa_table: {pa_table}")
@@ -146,7 +193,7 @@ class CppStrategyRunner:
             asset_map = {asset.name: asset for asset in self.assets}
             strat.assets = asset_map
 
-            cpp_strat = CppStrategyAdapter(strat)
+            cpp_strat = CppStrategyAdapter(strat, batch_params)
             cpp_strategies.append(cpp_strat)
 
         # 3. Convert Books
@@ -162,14 +209,14 @@ class CppStrategyRunner:
             )
             cpp_books.append(cpp_book)
 
-        # 4. Run C++ Engine
+        # 4. Build C++ Engine
         runner = yabte_cpp.StrategyRunner(
             pa_table, cpp_assets, cpp_strategies, cpp_books
         )
+        return runner, cpp_strategies
 
-        cpp_result = runner.run(sanitized_params)
-
-        # 5. Convert Result back to Python
+    def _convert_result(self, cpp_result) -> StrategyRunnerResult:
+        """Convert a C++ StrategyRunnerResult back to Python."""
         result_books = []
 
         # Helper to convert Arrow Table to Python list of lists for book history
@@ -249,18 +296,33 @@ class CppStrategyRunner:
 class CppStrategyAdapter(yabte_cpp.Strategy if yabte_cpp else object):
     """Adapts a pure Python Strategy to be callable by C++ engine."""
 
-    def __init__(self, python_strategy: Strategy):
+    def __init__(
+        self,
+        python_strategy: Strategy,
+        batch_params: List[Dict[str, Any]] | None = None,
+    ):
         if yabte_cpp:
             super().__init__()
         self.python_strategy = python_strategy
+        # Original params for each run of a batch, indexed by _BATCH_INDEX_KEY.
+        self._batch_params = batch_params
 
     def clone(self):
         """Clone method required by C++ PyStrategy trampoline."""
         # Note: self.python_strategy MUST be deepcopy-able.
         new_strat = deepcopy(self.python_strategy)
-        return CppStrategyAdapter(new_strat)
+        return CppStrategyAdapter(new_strat, self._batch_params)
 
     def init(self):
+        # In a batch, give this run's own params to the Python strategy. They come
+        # from the original list rather than the C++ ParamMap so that values such as
+        # Enums keep their Python types, matching the Python engine.
+        if self._batch_params is not None:
+            ix = self.params[_BATCH_INDEX_KEY]
+            self.python_strategy.params = pd.Series(
+                self._batch_params[ix], dtype=object
+            )
+
         # Initialize Python-side orders queue if not present
         if self.python_strategy.orders is None:
             self.python_strategy.orders = Orders()

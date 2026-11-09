@@ -1,6 +1,9 @@
-import concurrent.futures
 import logging
-from concurrent.futures import ProcessPoolExecutor
+import os
+import pickle
+import sys
+import warnings
+from concurrent.futures import Executor, ProcessPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional
@@ -17,10 +20,47 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["StrategyRunner"]
 
+# Per-process runner for StrategyRunner.run_batch's default process pool. Set once
+# per worker by the pool initializer so the data is sent to each worker once rather
+# than with every parameter set.
+_batch_worker_runner: "StrategyRunner | None" = None
+
+
+def _init_batch_worker(runner: "StrategyRunner"):
+    global _batch_worker_runner
+    _batch_worker_runner = runner
+
+
+def _run_batch_item(params: Dict[str, Any] | None) -> "StrategyRunnerResult":
+    assert _batch_worker_runner is not None
+    return _batch_worker_runner.run(params)
+
+
+def _process_safe_reason(runner: "StrategyRunner") -> str | None:
+    """Return why `runner` can't be run in worker processes, or None if it can.
+
+    Worker processes are started by forkserver/spawn on most platforms, so each strategy
+    class must be importable by name in a fresh interpreter, not just picklable here.
+    """
+    main_file = getattr(sys.modules.get("__main__"), "__file__", None)
+    for strat in runner.strategies:
+        cls = type(strat)
+        if "<locals>" in cls.__qualname__:
+            return f"strategy class {cls.__qualname__} is defined inside a function"
+        if cls.__module__ == "__main__" and main_file is None:
+            return (
+                f"strategy class {cls.__name__} is defined interactively "
+                "(e.g. in a notebook)"
+            )
+    try:
+        pickle.dumps(runner)
+    except Exception as e:
+        return f"the runner can't be pickled ({e})"
+    return None
+
 
 def _check_data(df, asset_map):
     """Check data structure correct."""
-
     if not isinstance(df.index, pd.DatetimeIndex):
         raise ValueError("data index must be a datetimeindex")
     if not df.index.is_monotonic_increasing:
@@ -101,10 +141,10 @@ from .row_wrapper import MultiIndexRowWrapper
 class PythonStrategyRunner:
     """Encapsulates the execution of multiple strategies.
 
-    Orders are captured in `orders_processed` and `orders_unprocessed`.
-    `books` is a list of books and if none provided a single book is
-    created called 'Main'. After execution summary book and trade
-    histories are captured in `book_history` and `transaction_history`.
+    Orders are captured in `orders_processed` and `orders_unprocessed`. `books` is a
+    list of books and if none provided a single book is created called 'Main'. After
+    execution summary book and trade histories are captured in `book_history` and
+    `transaction_history`.
     """
 
     data: pd.DataFrame = field()
@@ -140,7 +180,6 @@ class PythonStrategyRunner:
 
     def run(self, params: Dict[str, Any] = None) -> StrategyRunnerResult:
         """Execute each strategy through time."""
-
         params = pd.Series(params or {}, dtype=object)
 
         srr = StrategyRunnerResult(
@@ -350,12 +389,70 @@ class StrategyRunner:
     def run_batch(
         self,
         params_iterable: Iterable[Dict[str, Any]],
-        executor: ProcessPoolExecutor | None = None,
+        executor: Executor | None = None,
     ) -> List[StrategyRunnerResult]:
-        """Run a set of parameter combinations."""
-        # TODO: Refactor to support batch running across engines properly
-        # For now, simplistic delegation to run() which creates a runner each time
+        """Run a set of parameter combinations, returning results in order.
 
-        executor = executor or concurrent.futures.ThreadPoolExecutor()
-        with executor:
-            return list(executor.map(self.run, params_iterable))
+        With no `executor`:
+
+        - ``engine="cpp"`` with only native C++ strategies uses the C++ engine's
+          own thread pool, converting the data once for all runs.
+        - Otherwise (``engine="python"``, or any Python strategy) it runs in a
+          process pool, sending the data to each worker once. Threads aren't used
+          because Python strategy code holds the GIL, which makes thread pools
+          slower than running serially. If the strategies can't be used from
+          another process (e.g. a class defined inside a function or in a
+          notebook), this warns and runs serially instead.
+
+        A supplied `executor` is used as given, mapping :py:meth:`run` over the
+        params, and is shut down afterwards.
+        """
+        params_list = list(params_iterable)
+        if not params_list:
+            return []
+
+        if executor is not None:
+            with executor:
+                return list(executor.map(self.run, params_list))
+
+        cpp_runner = None
+        if self.engine == "cpp":
+            from .runner_cpp import CppStrategyRunner, yabte_cpp
+
+            cpp_runner = CppStrategyRunner(
+                data=self.data,
+                assets=self.assets,
+                strategies=self.strategies,
+                mandates=self.mandates,
+                books=self.books,
+            )
+            if all(isinstance(s, yabte_cpp.Strategy) for s in self.strategies):
+                return cpp_runner.run_batch(params_list)
+
+        if len(params_list) == 1:
+            return [self.run(params_list[0])]
+
+        reason = _process_safe_reason(self)
+        if reason is not None:
+            warnings.warn(
+                f"run_batch is running serially because {reason}. Define strategy "
+                "classes at module level in an importable module to run in "
+                "parallel, or pass an executor.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            if cpp_runner is not None:
+                # one thread: still converts the data only once
+                return cpp_runner.run_batch(params_list, num_threads=1)
+            return [self.run(p) for p in params_list]
+
+        max_workers = min(
+            len(params_list),
+            getattr(os, "process_cpu_count", os.cpu_count)() or 1,
+        )
+        with ProcessPoolExecutor(
+            max_workers=max_workers,
+            initializer=_init_batch_worker,
+            initargs=(self,),
+        ) as pool:
+            return list(pool.map(_run_batch_item, params_list))

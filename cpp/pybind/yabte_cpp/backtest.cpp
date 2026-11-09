@@ -564,7 +564,11 @@ PYBIND11_MODULE(_yabte_backtest_lib, m) {
 
             return new StrategyRunner(data, assets, strategies, books);
         }))
-        .def("run", &StrategyRunner::run)
+        // Release the GIL so other Python threads (e.g. a user's thread pool)
+        // can run alongside the C++ event loop. Python strategy callbacks
+        // re-acquire it through the PyStrategy trampolines.
+        .def("run", &StrategyRunner::run, py::arg("params") = ParamMap{},
+             py::call_guard<py::gil_scoped_release>())
         .def("run_batch", &StrategyRunner::run_batch,
              py::call_guard<py::gil_scoped_release>())
         // .def("run_batch",

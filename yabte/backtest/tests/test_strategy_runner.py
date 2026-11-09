@@ -20,6 +20,7 @@ from yabte.backtest import (
     Strategy,
     StrategyRunner,
 )
+from yabte.backtest.runner_cpp import CppStrategyRunner, yabte_cpp
 from yabte.backtest.tests._parity import (
     HAS_CPP,
     ParityAssertionsMixin,
@@ -736,6 +737,121 @@ class StrategyRunnerTestCase(ParityAssertionsMixin, NumpyTestCase):
             for srr in srrs
         }
         self.assertEqual(len(sharpes), len(param_iter))
+
+    def test_run_batch_empty(self):
+        sr = StrategyRunner(
+            data=self.df_combined, assets=self.assets, strategies=[TestSMAXOStrat()]
+        )
+        self.assertEqual(sr.run_batch([]), [])
+
+    def test_run_batch_matches_run(self):
+        """The default process pool returns the same results, in order, as run()."""
+        sr = StrategyRunner(
+            data=self.df_combined, assets=self.assets, strategies=[TestSMAXOStrat()]
+        )
+        param_iter = [
+            {"days_long": 30, "days_short": 10},
+            {"days_long": 20, "days_short": 5},
+        ]
+        srrs = sr.run_batch(param_iter)
+
+        for params, srr in zip(param_iter, srrs):
+            expected = sr.run(params)
+            self.assertResultParity(expected, srr, context=str(params))
+
+    def test_run_batch_local_strategy_runs_serially(self):
+        """A strategy class that worker processes can't import falls back to serial."""
+
+        class LocalSMAXOStrat(TestSMAXOStrat):
+            pass
+
+        sr = StrategyRunner(
+            data=self.df_combined, assets=self.assets, strategies=[LocalSMAXOStrat()]
+        )
+        param_iter = [
+            {"days_long": 30, "days_short": 10},
+            {"days_long": 20, "days_short": 5},
+        ]
+        with self.assertWarnsRegex(RuntimeWarning, "defined inside a function"):
+            srrs = sr.run_batch(param_iter)
+
+        self.assertEqual(len(srrs), len(param_iter))
+        for params, srr in zip(param_iter, srrs):
+            self.assertResultParity(sr.run(params), srr, context=str(params))
+
+    def test_run_batch_cpp_parity(self):
+        """C++ engine batches match the Python engine, both via the facade (a process
+        pool, as the strategy is Python) and on the C++ thread pool directly.
+
+        Uses an Enum param so it also checks each run's original params (not the
+        sanitized C++ ParamMap) reach the Python strategy in C++ worker threads.
+        """
+        skip_or_fail_without_cpp(self)
+
+        # no rounding, to avoid Decimal vs double discrepancies (as other parity tests)
+        assets = [
+            OHLCAsset(
+                name=asset.name,
+                denom=asset.denom,
+                price_round_dp=None,
+                quantity_round_dp=None,
+                data_label=asset.data_label,
+            )
+            for asset in self.assets
+        ]
+        param_iter = [
+            {"size_type": OrderSizeType.QUANTITY, "size_factor": 100},
+            {"size_type": OrderSizeType.NOTIONAL, "size_factor": 1000},
+            {"size_type": OrderSizeType.BOOK_PERCENT, "size_factor": 20},
+        ]
+
+        def runner(engine):
+            return StrategyRunner(
+                data=self.df_combined,
+                assets=assets,
+                strategies=[TestPosOrderSizeStrat()],
+                books=[Book(name="Main", cash=Decimal("1000000"))],
+                engine=engine,
+            )
+
+        srrs_py = runner("python").run_batch(param_iter)
+        sr_cpp = runner("cpp")
+        srrs_cpp = sr_cpp.run_batch(param_iter)
+        srrs_cpp_threads = CppStrategyRunner(
+            data=sr_cpp.data,
+            assets=sr_cpp.assets,
+            strategies=sr_cpp.strategies,
+            books=sr_cpp.books,
+        ).run_batch(param_iter, num_threads=len(param_iter))
+
+        for srrs in (srrs_cpp, srrs_cpp_threads):
+            self.assertEqual(len(srrs), len(param_iter))
+            for params, res_py, res_cpp in zip(param_iter, srrs_py, srrs):
+                self.assertEqual(len(res_cpp.books[0].transactions), 8)
+                self.assertResultParity(res_py, res_cpp, context=str(params))
+
+    def test_run_batch_cpp_native(self):
+        """Native C++ strategies batch on the C++ thread pool, matching run()."""
+        skip_or_fail_without_cpp(self)
+
+        sr = StrategyRunner(
+            data=self.df_combined,
+            assets=self.assets,
+            strategies=[
+                yabte_cpp.SMAXOStrategy("GOOG", 10, 20),
+                yabte_cpp.SMAXOStrategy("MSFT", 5, 30),
+            ],
+            books=[Book(name="Main", cash=Decimal("1000000"))],
+            engine="cpp",
+        )
+        param_iter = [{}, {"unused": 1}, {"unused": 2}]
+        srrs = sr.run_batch(param_iter)
+
+        expected = sr.run()
+        self.assertGreater(len(expected.transaction_history), 0)
+        self.assertEqual(len(srrs), len(param_iter))
+        for srr in srrs:
+            self.assertResultParity(expected, srr)
 
     def test_intraday(self):
         class TestSMAXOStratIntraday(Strategy):
