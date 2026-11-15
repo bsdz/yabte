@@ -1,62 +1,113 @@
-[tool.poetry]
+[project]
 name = "yabte"
-version = "0.4.1"
 description = "Yet another backtesting engine"
-authors = ["Blair Azzopardi <blairuk@gmail.com>"]
 license = "MIT"
+license-files = ["LICENSE*"]
+version = "0.5.0"
 readme = "README.md"
+authors = [{ name = "Blair Azzopardi", email = "blairuk@gmail.com" }]
+requires-python = '>=3.12,<3.15'
+dependencies = [
+    'pandas (>=2.2.3,<4.0.0)',
+    'scipy (>=1.15.2,<2.0.0)',
+    'pandas-stubs (>=2.2.3.250308,<3.0.0.0)',
+    "pyarrow (>=23.0.0,<24.0.0)",
+]
+
+[project.urls]
 repository = "https://github.com/bsdz/yabte"
+documentation = "https://yabte.readthedocs.io/en/latest/"
 
-[tool.poetry.build]
-script = "build_mypyc.py"
-generate-setup-file = true
 
-[tool.poetry.dependencies]
-python = "^3.10,<3.13"
-pandas = "^2.2.1"
-scipy = "^1.10.0"
-pandas-stubs = "^2.1.4.231227"
-mypy = "^1.8.0"
+[project.scripts]
+yabte-install-skill = "yabte._skills:main"
 
-[tool.poetry.group.dev]
-optional = true
-
-[tool.poetry.group.dev.dependencies]
-isort = "^5.11.4"
-black = {extras = ["jupyter"], version = "^23.1.0"}
-docformatter = "^1.5.1"
-coverage = "^7.2.1"
-setuptools = "^69.0.3"
-pytest = "^8.0.0"
-
-[tool.poetry.group.docs]
-optional = true
-
-[tool.poetry.group.docs.dependencies]
-sphinx = "^6.1.3"
-sphinx-rtd-theme = "1.2.0rc4"
-nbsphinx = "^0.9.3"
-sphinx-gallery = "^0.14.0"
-nbsphinx-link = "^1.3.0"
-
-[tool.poetry.group.notebooks]
-optional = true
-
-[tool.poetry.group.notebooks.dependencies]
-matplotlib = "^3.6.2"
-plotly = "^5.10.0"
-ipykernel = "^6.20.2"
-nbconvert = "^7.2.9"
-quantlib = "^1.34"
+[project.optional-dependencies]
+dev = [
+    "black[jupyter]>=25.1.0,<26.0.0",
+    "mypy>=1.15.0,<2.0.0",
+    "isort>=6.0.1,<7.0.0",
+    "docformatter>=1.7.0,<2.0.0",
+    "coverage>=7.8.2,<8.0.0",
+    "nox>=2025.5.1,<2026.0.0",
+    "pytest>=8.0.0,<10.0.0",
+    "setuptools>=77.0.0,<81.0.0",
+    "ipython>=9.10.0,<10.0.0",
+]
+notebooks = [
+    "matplotlib>=3.6.2,<4.0.0",
+    "plotly>=5.10.0,<6.0.0",
+    "ipykernel>=6.20.2,<7.0.0",
+    "nbconvert>=7.2.9,<8.0.0",
+    "quantlib>=1.34,<2.0.0",
+    "pyfolio-reloaded>=0.9.8,<1.0.0",
+]
+docs = [
+    "sphinx>=6.1.3,<7.0.0",
+    "sphinx-rtd-theme>=1.2.0rc4,<2.0.0",
+    "nbsphinx>=0.9.3,<1.0.0",
+    "sphinx-gallery>=0.14.0,<1.0.0",
+    "nbsphinx-link>=1.3.0,<2.0.0",
+]
 
 [tool.isort]
 profile = "black"
-skip_glob = [".venv*/*"]
 
 [[tool.mypy.overrides]]
-module = "plotly.*,scipy.*,matplotlib.*"
+module = "plotly.*,scipy.*,matplotlib.*,pyarrow.*,pyfolio.*,_yabte_backtest_lib,yabte.backtest._yabte_backtest_lib"
 ignore_missing_imports = true
 
 [build-system]
-requires = ["poetry-core>=1.0.0", "setuptools==69.0.2", "mypy==1.8.0", "pandas-stubs==2.1.4.231227"]
-build-backend = "poetry.core.masonry.api"
+requires = [
+    "setuptools>=77.0.0",
+    "wheel",
+    "cmake>=3.20",
+    "conan>=2.0,<3.0",
+    # The extension compiles against pyarrow's headers and links its Arrow
+    # libraries, so it is needed at build time too. This pin MUST match the
+    # runtime pin in [project.dependencies]: Arrow's sonames are version
+    # stamped, so a mismatch produces a wheel that cannot load.
+    "pyarrow>=23.0.0,<24.0.0",
+]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-data]
+# the agent skill; yabte-install-skill copies it into a project
+yabte = ["skills/*/SKILL.md"]
+
+[tool.setuptools.packages.find]
+include = ["yabte*"]
+namespaces = true
+
+[tool.cibuildwheel]
+# CPython 3.12-3.14 per requires-python. The extension links pyarrow's
+# version-stamped Arrow sonames, so each wheel is tied to both the interpreter
+# ABI and the pyarrow minor pinned in [project.dependencies].
+build = "cp312-* cp313-* cp314-*"
+skip = "*-musllinux_*"
+archs = ["x86_64"]
+build-frontend = "build"
+
+# Mandatory, not best-effort: a wheel with no extension in it must never ship.
+environment = { YABTE_BUILD_CPP = "1", YABTE_CMAKE_TOOLCHAIN_FILE = "/host-conan/conan_toolchain.cmake" }
+
+# C++23 needs a newer toolchain than the default manylinux image provides.
+manylinux-x86_64-image = "manylinux_2_28"
+
+# Resolve the Conan dependencies once per platform and reuse the toolchain for
+# every interpreter version, rather than re-resolving them per wheel.
+before-all = [
+    "pipx install 'conan>=2.0,<3.0'",
+    "conan profile detect --exist-ok",
+    "conan install {project}/cpp --output-folder=/host-conan --build=missing --settings=build_type=Release --settings=compiler.cppstd=23 --options=wheel_only=True",
+]
+
+# auditwheel must NOT vendor pyarrow's Arrow libraries into the wheel: the
+# module has to use the same Arrow as the pyarrow the user imports, or the
+# process ends up with two incompatible Arrow runtimes (the "Two Arrows"
+# problem). Excluding them makes pyarrow a genuine runtime dependency, which
+# the pin in [project.dependencies] already expresses.
+repair-wheel-command = "python {project}/scripts/repair_wheel.py {wheel} {dest_dir}"
+
+test-requires = "pandas"
+test-command = "python {project}/scripts/check_wheel.py"

@@ -1,29 +1,45 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import TYPE_CHECKING, TypeAlias, TypeVar, Union, cast
+from typing import TypeAlias, TypeVar, Union, cast
 
 import pandas as pd
-from mypy_extensions import mypyc_attr
 
-__all__ = ["OHLCAsset"]
+from ._helpers import round_dp
+
+__all__ = ["OHLCAsset", "MissingPriceError", "find_missing_data"]
 
 
-# use ints until mypyc supports IntFlag
-# https://github.com/mypyc/mypyc/issues/1022
+# TODO: switch to IntFlag since no longer using mypyc
 AssetDataFieldInfo = int
 ADFI_AVAILABLE_AT_CLOSE: int = 1
 ADFI_AVAILABLE_AT_OPEN: int = 2
 ADFI_REQUIRED: int = 4
 
-T = TypeVar("T", bound=Union[pd.Series, pd.DataFrame])
-
 AssetName: TypeAlias = str
 """Asset name string."""
 
+T = TypeVar("T", bound=Union[pd.Series, pd.DataFrame])
 
-@mypyc_attr(allow_interpreted_subclasses=True)
+
+class MissingPriceError(ValueError):
+    """Raised when a backtest needs a price an asset can't give: an order executes on a
+    day with no price, or a book holds the asset at a close with no price."""
+
+
+def _require_price(price, asset_name: str, ts: pd.Timestamp, kind: str) -> Decimal:
+    """Return `price` as a `Decimal`, raising `MissingPriceError` if it's missing.
+
+    The engines call this on every price they use, so it covers custom assets too.
+    """
+    if price is None or not (price := Decimal(price)).is_finite():
+        raise MissingPriceError(
+            f"No {kind} price for {asset_name} on "
+            f"{pd.Timestamp(ts):%Y-%m-%d %H:%M:%S}; drop or fill the missing data"
+            " (find_missing_data lists the gaps)"
+        )
+    return price
+
+
 @dataclass(kw_only=True)
 class Asset:
     """Anything that has a price."""
@@ -52,7 +68,7 @@ class Asset:
 
     def round_quantity(self, quantity) -> Decimal:
         """Round `quantity`."""
-        return round(quantity, self.quantity_round_dp)
+        return round_dp(quantity, self.quantity_round_dp)
 
     def intraday_traded_price(
         self, asset_day_data: pd.Series, size: Decimal | None = None
@@ -60,8 +76,7 @@ class Asset:
         """Calculate price during market hours with given row of `asset_day_data` and
         the order `size`.
 
-        The `size` can be used to
-        determine a price from say, bid / ask spreads.
+        The `size` can be used to determine a price from say, bid / ask spreads.
         """
         raise NotImplementedError(
             "The intraday_traded_price method needs to be implemented."
@@ -95,7 +110,6 @@ class Asset:
         return cast(T, data[self.data_label])
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class OHLCAsset(Asset):
     """Assets whose price history is represented by High, Low, Open, Close and Volume
@@ -117,10 +131,11 @@ class OHLCAsset(Asset):
             p = Decimal((asset_day_data.Low + asset_day_data.High) / 2)
         else:
             p = Decimal(asset_day_data.Close)
-        return round(p, self.price_round_dp)
+
+        return round_dp(p, self.price_round_dp)
 
     def end_of_day_price(self, asset_day_data: pd.Series) -> Decimal:
-        return round(Decimal(asset_day_data.Close), self.price_round_dp)
+        return round_dp(Decimal(asset_day_data.Close), self.price_round_dp)
 
     def check_and_fix_data(self, data: pd.DataFrame) -> pd.DataFrame:
         # TODO: check low <= open, high, close & high >= open, low, close
@@ -139,3 +154,29 @@ class OHLCAsset(Asset):
         expected_fields = self._get_fields(ADFI_AVAILABLE_AT_CLOSE)
         other_fields = list(set(data.columns) - set(expected_fields))
         return data.reindex(expected_fields + other_fields, axis=1)
+
+
+def find_missing_data(data: pd.DataFrame, assets: list[Asset]) -> pd.DataFrame:
+    """List the missing values of each asset's required fields in `data`.
+
+    `data` and `assets` are as passed to `StrategyRunner`. Required fields are those
+    that `Asset.data_fields` flags with `ADFI_REQUIRED` (`Close` for `OHLCAsset`).
+    Returns one row per missing value, with columns `ts`, `asset_name` and `field`, so
+    `find_missing_data(...).groupby("asset_name").ts.agg(["min", "max", "count"])`
+    summarises the gaps.
+
+    Gaps aren't necessarily errors: the engines only raise `MissingPriceError` when a
+    run needs the price, because an order executes or the book holds the asset that
+    day. Use this to find and fix gaps before a run rather than at the first failure.
+    """
+    rows: list[tuple[pd.Timestamp, str, str]] = []
+    for asset in assets:
+        assert isinstance(asset.data_label, str)
+        for field in asset._get_fields(ADFI_REQUIRED):
+            col = (asset.data_label, field)
+            if col not in data.columns:
+                missing = data.index
+            else:
+                missing = data.index[data[col].isna().to_numpy()]
+            rows.extend((ts, asset.name, field) for ts in missing)
+    return pd.DataFrame(rows, columns=["ts", "asset_name", "field"])

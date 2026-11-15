@@ -128,3 +128,12 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# project specific ignores
+*.nogit/
+wheelhouse/
+# generated next to the C++ extension by setup.py
+yabte/backtest/THIRD_PARTY_LICENSES.txt
+
+# CTest run artifacts
+cpp/src_test/Testing/

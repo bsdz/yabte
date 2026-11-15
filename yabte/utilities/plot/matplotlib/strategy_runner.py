@@ -143,7 +143,8 @@ def plot_strategy_runner_result(
                 marker_long = s.long_markers.get("", "^")
                 marker_short = s.long_markers.get("", "v")
 
-                prices.Low[pos_hist.eval("quantity < 0 and labels==@l")].rename(
+                labelled = pos_hist.labels == l
+                prices.Low[(pos_hist.quantity < 0) & labelled].rename(
                     f"Short {l}".strip()
                 ).plot(
                     color="red",
@@ -152,7 +153,7 @@ def plot_strategy_runner_result(
                     linestyle="None",
                     ax=pax,
                 )
-                prices.High[pos_hist.eval("quantity > 0 and labels==@l")].rename(
+                prices.High[(pos_hist.quantity > 0) & labelled].rename(
                     f"Long {l}".strip()
                 ).plot(
                     color="green",

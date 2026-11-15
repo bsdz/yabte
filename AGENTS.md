@@ -1,0 +1,302 @@
+# AGENTS.md
+
+Guidance for AI coding agents (and humans) working in this repository.
+
+## What this is
+
+`yabte` ("Yet Another BackTesting Engine") is a Python library for backtesting trading
+strategies, event-driven (`on_open`/`on_close` hooks), with multi-asset/multi-book
+support and pluggable order types. A C++ backend (via pybind11) provides an
+accelerated, mostly-parallel implementation of the same object model for
+performance-critical runs; the pure-Python engine remains the default and the
+reference implementation. Licensed MIT.
+
+## Development workflow
+
+This project uses `nox` for task automation and PEP 621 optional-dependency groups
+(`dev`, `notebooks`, `docs`) declared in `pyproject.toml`. Prefer `nox` sessions over
+invoking tools manually so environments stay consistent.
+
+### Python versions
+
+Supported Python is 3.12-3.14 (`requires-python`), but nothing reads a single default
+version: each tool pins its own, and they should move together.
+
+| Where | Version | Notes |
+|---|---|---|
+| `pyproject.toml` `requires-python` | 3.12-3.14 | what the package declares |
+| `[tool.cibuildwheel]` `build` | cp312, cp313, cp314 | a wheel per version, each smoke-tested by `scripts/check_wheel.py` |
+| nox sessions (`test`, `build-cpp`, `typecheck`) | 3.14 | set per session with `python=` |
+| `.github/workflows/branch.yml` | 3.14 | lint, C++ build and the full test suite |
+| `.github/workflows/release.yaml` | 3.14 | only runs the tooling (cibuildwheel, sdist, twine) |
+| `.readthedocs.yaml` `build.tools.python` | 3.14 | docs build |
+
+Only 3.14 runs the full test suite; 3.12 and 3.13 get the wheel smoke test at release.
+There is deliberately no `.python-version`: only uv and pyenv would read it, and every
+tool above pins its version explicitly. When adding or dropping a version, update
+`requires-python`, the cibuildwheel `build` selector and the pyarrow wheels available for
+it together.
+
+The build type is a nox *parametrization*, selected in the session name, not a
+positional argument (`nox -s build-cpp -- debug` runs **both** Debug and Release):
+
+```bash
+nox -s do-lint                  # apply black, isort, docformatter
+nox -s check_lint               # check only (this is what CI runs)
+nox -s typecheck                # mypy over yabte/
+nox -s "build-cpp(debug)"       # conan install + cmake configure/build + ctest, Debug
+nox -s "build-cpp(release)"     # same, Release
+nox -s "test-3.14(debug)"       # unittest suite + coverage against cpp/build/Debug/pybind
+nox -s "test-3.14(release)"     # same, against cpp/build/Release/pybind
+nox -s "clean-cpp(debug)"       # or clean-cpp(release)
+```
+
+`test` builds nothing: it expects the C++ extension at
+`cpp/build/{Debug,Release}/pybind` (it adds that path to `PYTHONPATH`), so run the
+matching `build-cpp` first. Default nox sessions (bare `nox`) run `do-lint`,
+`build-cpp(debug)`, then `test-3.14(debug)`.
+
+To pass a filename pattern to the test session:
+`nox -s "test-3.14(debug)" -- "test_asset.py"` (unittest discover's `-p` argument).
+
+Parity tests skip when the C++ extension can't be imported. Set `YABTE_REQUIRE_CPP=1`
+(as CI does) to make a missing extension a failure instead, so the parity suite can't
+silently shrink to nothing.
+
+### Running Python tests directly
+
+The project uses standard-library `unittest`, not pytest (pytest is only a dev
+dependency, not the runner). Tests live alongside the code they test (e.g.
+`yabte/backtest/tests/`, `yabte/utilities/portopt/tests/`), not in one central tree.
+
+```bash
+python -m unittest yabte.backtest.tests.test_strategy_runner.StrategyRunnerTestCase
+python -m unittest yabte.backtest.tests.test_strategy_runner.StrategyRunnerTestCase.test_some_case
+python -m unittest discover -v -s ./yabte/ -p "test_*.py"
+```
+
+Install dev deps first: `pip install .[dev]` (a source install also tries to build the
+C++ engine; set `YABTE_BUILD_CPP=0` to skip it, see Packaging). If exercising the C++
+engine from a `build-cpp` build, set `PYTHONPATH=cpp/build/Debug/pybind` (or
+`Release`) so `runner_cpp.py` can import the compiled `_yabte_backtest_lib` extension —
+it falls back to `yabte_cpp = None` and raises at runtime if not found.
+
+If a nox-managed environment already exists, its interpreter (e.g.
+`.nox/test-3-14-debug/bin/python`, or the local `.venv_dev/bin/python`) has all
+dev/notebook dependencies preinstalled and is the fastest way to run one-off commands
+without reinstalling anything.
+
+### C++ build (fast path for iteration)
+
+`nox -s "build-cpp(...)"` can be slow. For iterating on C++ directly, activate a venv
+first (cmake needs to find the right Python headers/libs **and pyarrow**, which must be
+the pinned 23.x, see below) and use system `conan` (v2.x):
+
+```bash
+source .venv_dev/bin/activate
+cd cpp
+conan install . --output-folder=build/Release --build=missing --settings=build_type=Release
+cd build/Release
+cmake ../.. -DCMAKE_BUILD_TYPE=Release
+cmake --build . --config Release
+cd src_test && ctest --output-on-failure -C Release
+```
+
+C++23, CMake 3.20+, Conan 2.x, GoogleTest, pybind11. Headers in `cpp/include/`, sources
+in `cpp/src/`, tests in `cpp/src_test/`.
+
+**Two Arrows problem:** when linking the C++ extension, it must use the `pyarrow`
+shared libraries from the installed Python wheel (`libarrow_python.so`, located via
+`find_library` in the pyarrow package dir in `CMakeLists.txt`), not Conan's static
+Arrow libs — otherwise passing `pyarrow.Table` objects between Python and C++ fails with
+`RuntimeError: Error converting pyarrow table to arrow table: ... Could not unwrap
+Table...`.
+
+**pyarrow pin:** the extension links pyarrow's version-stamped sonames
+(`libarrow.so.<major><minor>`), so it only loads against the pyarrow minor it was built
+with. The pin (`>=23.0.0,<24.0.0`) lives in three places that must stay in step:
+`[project.dependencies]` and `[build-system].requires` in `pyproject.toml`, and
+`PYARROW_BUILD_REQUIREMENT` in `noxfile.py`. Building against a different pyarrow can
+appear to work locally (the build env's own pyarrow is on the library path) and then
+fail to load elsewhere.
+
+## Packaging
+
+The C++ engine ships inside the wheel as `yabte.backtest._yabte_backtest_lib`
+(`runner_cpp.py` tries that first, then a top-level `_yabte_backtest_lib` on
+`PYTHONPATH` for dev builds).
+
+- `setup.py` drives CMake from a setuptools `build_ext`. `YABTE_BUILD_CPP` is `auto`
+  (default: try, warn and install pure-Python on failure), `1` (required, any failure
+  aborts; **wheel builds must use this**) or `0` (skip). `YABTE_CMAKE_TOOLCHAIN_FILE`
+  reuses an existing Conan toolchain instead of running `conan install` per build.
+- Packaging builds use `-DYABTE_WHEEL_ONLY=ON` / Conan option `wheel_only=True`,
+  which builds only the extension module and skips Conan's Arrow, Boost, Thrift and
+  gtest (~9 Conan packages instead of ~40). Arrow comes from the installed pyarrow.
+- `[tool.cibuildwheel]` in `pyproject.toml` builds CPython 3.12-3.14, x86_64,
+  `manylinux_2_28` (needed for C++23), running `conan install` once in `before-all`.
+- `scripts/repair_wheel.py` runs auditwheel but keeps pyarrow's Arrow libraries
+  external (derived from what the extension actually links), because vendoring them
+  would recreate the Two Arrows problem.
+- Third-party licences: `cpp/conanfile.py`'s `generate()` writes
+  `THIRD_PARTY_LICENSES.txt` (every host dependency's licence texts) next to the
+  toolchain, and `setup.py` copies it beside the extension, so it ships only in builds
+  that include the C++ engine. yabte itself is MIT (`LICENSE`).
+- `scripts/check_wheel.py` is the cibuildwheel acceptance test: extension present,
+  licence notices present, no Arrow bundled, loads against the installed pyarrow,
+  Python/C++ engines agree. It guards against importing the source tree instead of the
+  installed wheel.
+- CI: `.github/workflows/branch.yml` runs `check_lint`, the C++ build/ctest, and the
+  Python suite with `YABTE_REQUIRE_CPP=1`; `release.yaml` builds wheels + sdist,
+  checks that at least one wheel exists and that the sdist contains the C++ sources,
+  then publishes with twine.
+
+## Code style
+
+- Formatting is enforced by `black` (line length 88) + `isort` (`profile = "black"`) +
+  `docformatter`; run `nox -s do-lint` before committing (`_unittest_numpy_extensions.py`
+  is excluded from docformatter).
+- `mypy` is configured in `pyproject.toml` and runs clean via `nox -s typecheck`;
+  untyped or compiled modules (`scipy`, `plotly`, `matplotlib`, `pyarrow`, `pyfolio`, the
+  C++ extension) are exempted from missing-import errors.
+- Optional heavy dependencies (e.g. `scipy`) are imported in a `try/except` that sets a
+  `HAS_X` flag; corresponding tests use `@unittest.skipUnless(HAS_X, "needs X")`.
+- Numerical tests inherit `yabte.tests._unittest_numpy_extensions.NumpyTestCase` and use
+  `self.numpyAssertAllclose(expected, actual, atol=...)` rather than plain equality.
+  Seed RNGs deterministically (`np.random.default_rng(SEED)`) in `setUp`.
+- Extend `pandas.DataFrame` behavior via a registered accessor
+  (`@pd.api.extensions.register_dataframe_accessor(...)`, see
+  `yabte/utilities/pandas_extension.py`), not by subclassing `DataFrame`.
+
+## Architecture
+
+### Core object model (`yabte/backtest/`)
+
+The engine is built around five cooperating dataclasses, all re-exported from
+`yabte/backtest/__init__.py`:
+
+- **`Asset`** (`asset.py`) — anything with a price. `OHLCAsset` is the concrete
+  implementation supporting High/Low/Open/Close/Volume fields; subclass `Asset` to
+  support other schemas (e.g. bid/ask, custom fields). `data_fields()` declares which
+  fields exist and when they're visible (`ADFI_AVAILABLE_AT_OPEN` /
+  `ADFI_AVAILABLE_AT_CLOSE` / `ADFI_REQUIRED` bitflags) — this drives the open/close data
+  masking described below.
+- **`Book`** (`book.py`) — tracks cash, positions, and transaction history for one
+  ledger. `eod_tasks()` accrues continuously-compounded interest and marks-to-market
+  using each asset's `end_of_day_price`.
+- **Missing prices:** assets return NaN when they have no price. The engines raise
+  `MissingPriceError` (a `ValueError`) whenever they use one: an order executing
+  (checked in the orders' `_calc_quantity_price` / C++ `apply`) or a held position
+  valued at the close (`eod_tasks`; flat positions are skipped). The check is
+  `_require_price` in `asset.py` and `require_price` in C++ `common.hpp`, with
+  identical messages, and the bindings translate the C++ exception to the Python
+  class. Gaps nothing uses don't raise. `find_missing_data(data, assets)` lists gaps in
+  `ADFI_REQUIRED` fields before a run.
+- **`Order`** family (`order.py`) — `SimpleOrder` (market order, `QUANTITY`/`NOTIONAL`/
+  `BOOK_PERCENT` sizing), `PositionalOrder` (trades to reach a target position),
+  `BasketOrder`/`PositionalBasketOrder` (multi-asset weighted variants). Orders are
+  processed from an `Orders` double-ended queue each timestep, sorted by `priority`;
+  `key` lets a newer order supersede an older one with the same key
+  (`remove_duplicate_keys`). `apply()` computes trades and calls `_book_trades()`, which
+  checks the book's mandates before booking.
+- **`Strategy`** (`strategy.py`) — user-authored subclasses implement `init()` (run once,
+  can enrich `self.data`), `on_open()`, and `on_close()` (run every timestep). `self.data`
+  is a *view* of the full dataset windowed up to `self.ts`; during `on_open()` an
+  additional mask hides same-day fields not yet available at open (anything not in
+  `ADFI_AVAILABLE_AT_OPEN`) so strategies can't peek at the day's close/high/low early.
+  `self.orders`, `self.books`, `self.assets` are injected by the runner.
+- **`StrategyRunner`** (`strategyrunner.py`) — the facade. Validates `data` (must have a
+  unique, monotonic `DatetimeIndex` and a 2-level `(asset, field)` column MultiIndex
+  covering every asset), then dispatches to an engine and returns a
+  `StrategyRunnerResult` (deep copies of assets/books/strategies plus processed/
+  unprocessed orders — the result is decoupled from the runner's own state).
+  `run_batch()` runs a parameter sweep for optimization. With no executor it uses a
+  process pool (data sent once per worker), or the C++ thread pool when
+  `engine="cpp"` and every strategy is native C++; thread pools are avoided for Python
+  strategies because the GIL makes them slower than serial. If worker processes can't
+  import a strategy class (defined in a function or a notebook) it warns and runs
+  serially. Scripts calling it need an `if __name__ == "__main__":` guard.
+
+### Two engines, one model
+
+`StrategyRunner(engine=...)` selects between:
+- `"python"` (default, `PythonStrategyRunner` in `strategyrunner.py`) — the reference
+  implementation. Its per-timestep loop converts the flattened DataFrame to a PyArrow
+  table and iterates row-by-row via `MultiIndexRowWrapper` (`row_wrapper.py`) instead of
+  repeated `df.loc[ts]` lookups, for speed.
+- `"cpp"` (`CppStrategyRunner` in `runner_cpp.py`) — converts data/assets/books to the
+  compiled `_yabte_backtest_lib` pybind11 extension (built from `cpp/`) and runs the
+  event loop in C++. **Mandates are not supported in this engine** (raises `ValueError`
+  if a runner or any book has them), and **basket orders**
+  (`BasketOrder`/`PositionalBasketOrder`) raise `NotImplementedError`. Custom `Asset`
+  subclasses are converted to `OHLCAsset`, and custom order subclasses to their base
+  `SimpleOrder`/`PositionalOrder` (overridden hooks such as `pre_execute_check` don't
+  run), without an error. The C++ engine has no timezones: for a tz-aware index,
+  `CppStrategyRunner` passes local wall-clock times (so end-of-day grouping matches
+  Python's local dates) and maps output timestamps back, raising `ValueError` if a
+  local time repeats (clocks going back). The extension is optional at import time; `runner_cpp`
+  degrades gracefully to `yabte_cpp = None` and only raises when the engine is
+  actually instantiated. Python strategies run through `CppStrategyAdapter`; the
+  Python adapter objects must stay referenced for the whole C++ run (see
+  `CppStrategyRunner._build_runner`), or the trampolines lose their Python overrides.
+  `run`/`run_batch` release the GIL, so any Python object C++ holds must be released
+  with the GIL taken: trampoline `clone()`s return `python_owned(...)` pointers
+  (`cpp/pybind/yabte_cpp/backtest.cpp`) for this. Freeing one without the GIL
+  segfaults, but only intermittently.
+
+Because both engines must produce identical results for the same strategy, changes to
+order/book/asset semantics need to be mirrored in both the Python classes
+(`yabte/backtest/*.py`) and the corresponding C++ classes
+(`cpp/include/YABTE/BackTest/`, `cpp/src/YABTE/BackTest/`), and validated by
+`yabte/backtest/tests/test_parity.py` (same strategy run against both engines, compared
+strictly via the assertions in `tests/_parity.py`, which are themselves tested by
+`test_parity_harness.py`) in addition to `test_cpp_integration.py` and the C++ unit
+tests in `cpp/src_test/`.
+
+### `yabte/utilities/`
+
+Supporting, mostly-independent modules: `pandas_extension.py` (DataFrame accessors),
+`portopt/` (portfolio optimization: hierarchical risk parity, inverse volatility,
+minimum variance), `simulation/` (GBM, Heston, Wiener process generators for synthetic
+test data), `strategy_helpers.py` (e.g. `crossover`), `pyfolio.py` and `plot/{matplotlib,
+plotly}/` (result visualization — third-party stats like Sharpe/drawdown are expected to
+come from `empyrical`/`pyfolio`, not this library).
+
+### Agent skill
+
+`yabte/skills/yabte/SKILL.md` is a skill for agents *using* yabte. AGENTS.md is for
+working on it. It ships as package data, `yabte-install-skill` (`yabte/_skills.py`)
+copies it into a project, and `.claude/skills/yabte` and `.agents/skills/yabte` in this
+repo are symlinks to it.
+`yabte/tests/test_skill.py` runs its `python` code blocks, in order, on both engines,
+and checks that every upper-case name it cites in backticks is a real enum member, so
+update the skill when the public API changes. `scripts/check_wheel.py` checks that
+wheels include it.
+
+### Example notebooks
+
+`notebooks/*.ipynb` are committed **with outputs**, which the docs gallery
+(`docs/notebooks/*.nblink`, `docs/index.rst`) renders as-is; nbsphinx doesn't re-run
+them. `notebooks/scratch.nogit/` is untracked scratch work. Strategies that notebooks
+pass to `run_batch` live in `notebooks/example_strategies.py`, because worker processes
+can't import classes defined in a notebook. The bundled Nasdaq sample data's last day
+(2022-12-30) is missing most closing prices (a run holding those assets raises
+`MissingPriceError`), so notebooks that trade every asset drop it.
+
+To re-execute after an API change, run from the repo root with an environment that has
+the `notebooks` extras and the C++ extension (e.g. the `test` nox env), so outputs show
+both engines:
+
+```bash
+PYTHONPATH=cpp/build/Release/pybind PLOTLY_RENDERER=notebook_connected \
+  python -m nbconvert --to notebook --execute --inplace notebooks/<name>.ipynb
+```
+
+`PLOTLY_RENDERER=notebook_connected` loads plotly.js from a CDN instead of embedding it
+(about 4 MB per notebook).
+
+### Benchmarks
+
+`yabte/tests/benchmark/` (`benchmark_cpp_vs_py.py`, `profile_scenarios.py`, `portopt.py`)
+compares engine performance; not part of the standard `unittest discover` correctness
+suite.

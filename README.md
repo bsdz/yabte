@@ -5,24 +5,52 @@ Python module for backtesting trading strategies.
 Features
 
 * Event driven, ie `on_open`, `on_close`, etc. 
+* Daily or intraday bars. Book end-of-day tasks run once per date, after its last bar.
 * Multiple assets.
 * OHLC Asset. Extendable (e.g support additional fields, e.g. Volatility, or entirely different fields, e.g. Barrels per day).
-* Multiple books.
+* Multiple books, each with optional interest on cash.
 * Positional and Basket orders. Extendible (e.g. can support stop loss).
 * Batch runs (for optimization).
 * Captures book history including transactions & daily cash, MtM and total values.
+* Missing prices raise `MissingPriceError` when a run needs them, and `find_missing_data` lists gaps before a run.
 
 The module provides basic statistics like book cash, mtm and total value. Currently, everything else needs to be deferred to a 3rd party module like `empyrical`.
 
+### Accelerated C++ Backend
+
+A C++ backend supports most of the objects in the pure Python module. Select it with
+`StrategyRunner(..., engine="cpp")`; both engines give the same results for the same
+strategy. Strategies written in Python run on it unchanged, and strategies written
+natively in C++ also run in parallel in `run_batch`.
+
+The C++ backend has some limits:
+
+* Mandates raise `ValueError` and basket orders raise `NotImplementedError`.
+* Custom `Asset` and order subclasses are converted to their base classes without an
+  error, so overridden hooks such as `pre_execute_check` don't run.
+
 ## Core dependencies
 
-The core module uses pandas and scipy.
+The core module uses pandas, scipy and pyarrow. pyarrow is pinned to 23.x because the
+C++ extension links against it.
+
+## License
+
+This library is licensed under the [MIT License](LICENSE).
+
+Wheels that include the C++ engine also contain third-party code compiled into the
+extension; its licence notices ship alongside it as
+`yabte/backtest/THIRD_PARTY_LICENSES.txt`.
 
 ## Installation
 
 ```bash
-pip install yatbe
+pip install yabte
 ```
+
+Wheels include the C++ engine for CPython 3.12 to 3.14 on Linux x86_64. A source
+install tries to build it and falls back to pure Python if that fails. Set
+`YABTE_BUILD_CPP=0` to skip the build.
 
 ## Usage
 
@@ -102,7 +130,30 @@ plot_strategy_runner_result(srr, sr)
 
 ## Examples
 
-Jupyter notebook examples can be found under the [notebooks folder](https://github.com/bsdz/yabte/tree/main/notebooks).
+Jupyter notebook examples can be found under the [notebooks folder](https://github.com/bsdz/yabte/tree/main/notebooks):
+
+- **Readme_Example**: the example above, explained step by step.
+- **Engines_and_Parameter_Sweeps**: the Python and C++ engines, native C++ strategies, and parallel parameter sweeps with `run_batch`.
+- **Orders_and_Assets**: order sizing, positional orders, priority, limit orders, replacing orders by key, follow-on orders, and custom assets.
+- **Books_Interest_and_Mandates**: multiple books, interest on cash, and mandates.
+- **Intraday_Bars**: five-minute bars, an opening range breakout, and intraday equity from daily book history.
+- **Simulation**: Wiener, GBM and Heston simulations, and backtesting on simulated data.
+- **Portfolio_Optimization**: comparing portfolio optimisation schemes.
+- **Delta_Hedging**: delta hedging an option under constant and stochastic volatility.
+- **Pyfolio_Example**: pyfolio tear sheets from backtest results.
+
+## Agent skill
+
+yabte ships a skill that teaches coding agents its API: data and assets, strategies,
+orders, books, the two engines and parameter sweeps. To copy it into a project's
+`.claude/skills/` and `.agents/skills/`, run this from the project root:
+
+```bash
+yabte-install-skill
+```
+
+Use `--dest DIR` to install it somewhere else, such as `~/.claude/skills`. An existing
+copy that differs is only replaced with `--force`.
 
 ## Documentation
 
@@ -114,7 +165,30 @@ Documentation can be found on [Read the Docs](https://yabte.readthedocs.io/en/la
 Before commit run following format commands in project folder:
 
 ```bash
-poetry run black .
-poetry run isort . --profile black
-poetry run docformatter . --recursive --in-place --black --exclude _unittest_numpy_extensions.py
+nox --session do-lint
+```
+
+### Further development
+
+Support subinterpreters in C++ backend.
+
+### Build C++
+
+The build type is part of the session name. Without one, nox runs both Debug and
+Release.
+
+```bash
+nox --session "build-cpp(debug)"    # or build-cpp(release)
+```
+
+Tests run against a build of the same type, so build it first:
+
+```bash
+nox --session "test-3.14(debug)"    # or test-3.14(release)
+```
+
+#### Clean
+
+```bash
+nox --session "clean-cpp(debug)"    # or clean-cpp(release)
 ```

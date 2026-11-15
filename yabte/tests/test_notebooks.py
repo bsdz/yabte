@@ -16,7 +16,7 @@ class NotebooksTestCase(unittest.TestCase):
         for nb in notebooks_dir.glob("*.ipynb"):
             if not nb.name.startswith("_"):
                 with self.subTest(nb.name):
-                    ep = ExecutePreprocessor(timeout=600)
+                    ep = ExecutePreprocessor(timeout=600, kernel_name="python3")
                     with nb.open() as f:
                         nb = nbformat.read(f, as_version=4)
                         # will raise exception if issue, eg missing module

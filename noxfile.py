@@ -1,0 +1,178 @@
+import os
+
+import nox
+from dependency_groups import resolve
+
+nox.options.reuse_existing_virtualenvs = True
+nox.options.sessions = ["do-lint", "build-cpp(debug)", "test-3.14(debug)"]
+
+# Path to a locally built pyarrow wheel, or None to install from PyPI
+pyarrow_wheel_path = None
+
+# Keep in step with the pyarrow pin in pyproject.toml.
+PYARROW_BUILD_REQUIREMENT = "pyarrow>=23.0.0,<24.0.0"
+
+# Python sources the lint sessions format and check.
+LINT_PATHS = [
+    "yabte",
+    "scripts",
+    "notebooks/example_strategies.py",
+    "setup.py",
+    "noxfile.py",
+]
+
+
+def get_optional_dependencies(*groups):
+    pyproject = nox.project.load_toml("pyproject.toml")
+    dep_groups = pyproject["project"]["optional-dependencies"]
+    return resolve(dep_groups, *groups)
+
+
+def get_dependencies():
+    pyproject = nox.project.load_toml("pyproject.toml")
+    return pyproject["project"]["dependencies"]
+
+
+@nox.session(name="do-lint")
+def do_lint(session):
+    session.install(*get_optional_dependencies("dev"))
+
+    session.run("black", *LINT_PATHS)
+    session.run("isort", *LINT_PATHS, "--profile", "black")
+    session.run(
+        "docformatter",
+        *LINT_PATHS,
+        "--recursive",
+        "-i",
+        "--black",
+        "--exclude",
+        "_unittest_numpy_extensions.py",
+    )
+
+
+@nox.session
+def check_lint(session):
+    session.install(*get_optional_dependencies("dev"))
+
+    session.run("black", *LINT_PATHS, "--check")
+    session.run("isort", *LINT_PATHS, "--check-only", "--profile", "black")
+    session.run(
+        "docformatter",
+        *LINT_PATHS,
+        "--recursive",
+        "--check",
+        "--diff",
+        "--black",
+        "--exclude",
+        "_unittest_numpy_extensions.py",
+    )
+
+
+@nox.session(python="3.14")
+def typecheck(session):
+    """Run mypy over the package, with the dependencies the tests import."""
+    session.install(*get_dependencies())
+    session.install(*get_optional_dependencies("dev", "notebooks"))
+    session.run("mypy", "yabte")
+
+
+@nox.session(python=["3.14"])
+@nox.parametrize("build_type", ["Debug", "Release"], ids=["debug", "release"])
+def test(session, build_type):
+    # The extension comes from the build-cpp session (on PYTHONPATH below), so
+    # don't let the editable install try to build its own copy.
+    session.install("-e", ".", env={"YABTE_BUILD_CPP": "0"})
+    session.install(*get_dependencies())
+    session.install(*get_optional_dependencies("dev", "notebooks"))
+    if pyarrow_wheel_path:
+        session.install(pyarrow_wheel_path)
+
+    # Ensure C++ extension is found (assuming it was built with `nox -s build-cpp`)
+    # We add the location of the built .so to PYTHONPATH
+    # Absolute, because the notebook smoke test runs kernels from notebooks/.
+    env = {"PYTHONPATH": os.path.abspath(f"cpp/build/{build_type}/pybind")}
+
+    # accept an optional argument to specify which tests to run, otherwise run all tests
+    pattern = session.posargs[0] if session.posargs else "test_*.py"
+
+    # one run, under coverage; report coverage only for the whole suite
+    session.run(
+        "coverage",
+        "run",
+        "-m",
+        "unittest",
+        "discover",
+        "-v",
+        "-s",
+        "./yabte/",
+        "-p",
+        pattern,
+        env=env,
+    )
+    if not session.posargs:
+        session.run("coverage", "report", "-m")
+
+
+# Same interpreter as the test session: the extension is built for one Python ABI.
+@nox.session(name="build-cpp", python="3.14")
+@nox.parametrize("build_type", ["Debug", "Release"], ids=["debug", "release"])
+def cpp_build(session, build_type):
+    session.install("conan")
+    if pyarrow_wheel_path:
+        session.install(pyarrow_wheel_path)
+    else:
+        # Must match the runtime pin in pyproject.toml: the extension links
+        # pyarrow's versioned sonames (libarrow.so.<major><minor>), so a wheel
+        # built against a different pyarrow minor cannot load.
+        session.install(PYARROW_BUILD_REQUIREMENT)
+    session.install("numpy")
+
+    output_folder = f"build/{build_type}"
+
+    with session.chdir("cpp"):
+        # A fresh machine (e.g. CI) has no default profile; leave an existing one.
+        session.run("conan", "profile", "detect", "--exist-ok")
+        session.run(
+            "conan",
+            "install",
+            ".",
+            f"--output-folder={output_folder}",
+            "--build=missing",
+            f"--settings=build_type={build_type}",
+        )
+
+        with session.chdir(output_folder):
+            session.run(
+                "cmake",
+                "../..",
+                f"-DCMAKE_BUILD_TYPE={build_type}",
+                # Use this session's interpreter (which has pyarrow), not
+                # whichever Python CMake finds first on the machine.
+                f"-DPython_EXECUTABLE={session.bin}/python",
+            )
+
+            session.run("cmake", "--build", ".", "--config", build_type)
+
+            with session.chdir("src_test"):
+                session.run("ctest", "--output-on-failure", "-C", build_type)
+
+
+@nox.session(name="clean-cpp")
+@nox.parametrize("build_type", ["Debug", "Release"], ids=["debug", "release"])
+def cpp_clean(session, build_type):
+    output_folder = f"build/{build_type}"
+
+    with session.chdir("cpp"):
+        with session.chdir(output_folder):
+            session.run(
+                "cmake",
+                "../..",
+                f"-DCMAKE_BUILD_TYPE={build_type}",
+            )
+
+            session.run(
+                "cmake", "--build", ".", "--target", "clean", "--config", build_type
+            )
+
+        with session.chdir("build"):
+            session.run("rm", "-rf", build_type)

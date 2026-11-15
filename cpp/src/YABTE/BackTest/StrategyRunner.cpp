@@ -1,0 +1,430 @@
+#include "YABTE/BackTest/StrategyRunner.hpp"
+
+#include <BS_thread_pool.hpp>
+#include <algorithm>
+#include <ranges>
+#include <unordered_map>
+#include <utility>
+#include <iostream>
+#include <chrono>
+
+#include "YABTE/Utilities/Arrow/TableHelpers.hpp"
+#ifdef EXPER_PY_SUB_INTERP
+#include "YABTE/Utilities/Python/Interpreters.hpp"
+#endif
+
+using std::dynamic_pointer_cast, std::make_shared;
+
+using YABTE::Utilities::Arrow::ExtendTable,
+    YABTE::Utilities::Arrow::HorizConcatTables;
+
+#ifdef EXPER_PY_SUB_INTERP
+using YABTE::Utilities::Python::ThreadsAllowedScope;
+#endif
+
+namespace YABTE::BackTest {
+
+namespace {
+
+// Keep only the newest (last queued) order for each key; older ones are marked
+// REPLACED and moved to `processed`.
+void remove_duplicate_keys(OrderDeque &orders, OrderDeque &processed) {
+    std::unordered_map<string, int> remaining;
+    for (const auto &o : orders)
+        if (o->key_) ++remaining[*o->key_];
+    if (std::ranges::none_of(remaining, [](const auto &kv) { return kv.second > 1; }))
+        return;
+
+    OrderDeque kept;
+    for (auto &o : orders) {
+        if (o->key_ && remaining[*o->key_]-- > 1) {
+            o->status_ = OrderStatus::REPLACED;
+            processed.push_back(o);
+        } else {
+            kept.push_back(o);
+        }
+    }
+    orders.swap(kept);
+}
+
+}  // namespace
+
+#ifdef EXPER_PY_SUB_INTERP
+thread_local SubInterpreter subinterp_;
+#endif
+
+StrategyRunnerResult::StrategyRunnerResult()
+    : orders_unprocessed_(make_shared<OrderDeque>()) {}
+
+shared_ptr<Table> StrategyRunnerResult::book_history() const {
+    vector<string> book_names;
+    vector<shared_ptr<const Table>> book_history_tables;
+    for (auto& book : this->books_) {
+        book_names.push_back(book->name_);
+        book_history_tables.push_back(book->history());
+    }
+    auto st_et = HorizConcatTables(book_history_tables, book_names);
+    CHECK(st_et.ok()) << "Error: " << st_et.status();
+    return st_et.ValueOrDie();
+}
+
+StrategyRunner::StrategyRunner(const shared_ptr<Table>& data,
+                               const AssetVector& assets,
+                               const StrategyVector& strategies,
+                               const BookVector& books)
+    : data_(data), assets_(assets), strategies_(strategies), books_(books) {}
+
+StrategyRunnerResult StrategyRunner::run(const ParamMap& params) {
+#ifdef EXPER_PY_SUB_INTERP
+    auto interp = subinterp_.interp();
+    SubInterpreter::ThreadScope scope(interp);
+#endif
+
+    // std::cout << "DEBUG: Running strategy runner" << std::endl;
+    StrategyRunnerResult result;
+    
+#ifdef YABTE_ENABLE_PROFILING
+    auto start_init = std::chrono::high_resolution_clock::now();
+#endif
+
+    // copy books and stategies (assets are immutable but copy anyway)
+    // std::cout << "DEBUG: Cloning strategies..." << std::endl;
+    for (auto& s : this->strategies_) {
+        result.strategies_.push_back(shared_ptr<Strategy>(s->clone()));
+    }
+    // std::cout << "DEBUG: Cloning strategies done." << std::endl;
+
+    for (auto& b : this->books_)
+        result.books_.push_back(shared_ptr<Book>(b->clone()));
+
+    for (auto& a : this->assets_)
+        result.assets_.push_back(shared_ptr<Asset>(a->clone()));
+
+    // generate asset and book maps
+    shared_ptr<AssetMap> asset_map = make_shared<AssetMap>();
+    shared_ptr<BookMap> book_map = make_shared<BookMap>();
+    for (auto a : result.assets_) asset_map->emplace(a->name_, a);
+    for (auto b : result.books_) book_map->emplace(b->name_, b);
+
+    auto default_book = result.books_[0];
+
+    // std::cout << "DEBUG: Getting 'Date' column..." << std::endl;
+    auto calendar = this->data_->GetColumnByName("Date");
+    if (!calendar) {
+        std::cerr << "CRITICAL ERROR: 'Date' column not found in data table!" << std::endl;
+        std::cerr << "Available columns: ";
+        for (const auto& field : this->data_->schema()->fields()) {
+            std::cerr << field->name() << ", ";
+        }
+        std::cerr << std::endl;
+        throw std::runtime_error("Date column missing");
+    }
+    // std::cout << "DEBUG: 'Date' column found. Rows: " << calendar->length() << std::endl;
+
+    int64_t nr = this->data_->num_rows();
+
+    std::unordered_map<shared_ptr<Strategy>, shared_ptr<const Table>> data_map;
+
+#ifdef YABTE_ENABLE_PROFILING
+    double time_extend_data_total = 0;
+    double time_extend_table_total = 0;
+    double time_strategy_init_total = 0;
+#endif
+
+    // init
+    // std::cout << "DEBUG: Initializing strategies..." << std::endl;
+    for (auto& strategy : result.strategies_) {
+        // std::cout << "DEBUG: Setting up strategy maps/orders..." << std::endl;
+        strategy->asset_map_ = asset_map;
+        strategy->book_map_ = book_map;
+        strategy->orders_ = result.orders_unprocessed_;
+        strategy->params_ = params;
+
+        // merge tables here (using pointers to avoid copying data)
+        // std::cout << "DEBUG: Calling extend_data..." << std::endl;
+#ifdef YABTE_ENABLE_PROFILING
+        auto t_start_extend_data = std::chrono::high_resolution_clock::now();
+#endif
+        auto new_data = strategy->extend_data(this->data_);
+#ifdef YABTE_ENABLE_PROFILING
+        auto t_end_extend_data = std::chrono::high_resolution_clock::now();
+        time_extend_data_total += std::chrono::duration<double>(t_end_extend_data - t_start_extend_data).count();
+#endif
+        // std::cout << "DEBUG: extend_data returned." << std::endl;
+
+        if (new_data) {
+            // std::cout << "DEBUG: Extending data..." << std::endl;
+#ifdef YABTE_ENABLE_PROFILING
+            auto t_start_extend_table = std::chrono::high_resolution_clock::now();
+#endif
+            auto st_et = ExtendTable(this->data_, new_data);
+            CHECK(st_et.ok()) << "Error: " << st_et.status();
+            data_map.insert(std::make_pair(
+                strategy, dynamic_pointer_cast<Table>(st_et.ValueOrDie())));
+#ifdef YABTE_ENABLE_PROFILING
+            auto t_end_extend_table = std::chrono::high_resolution_clock::now();
+            time_extend_table_total += std::chrono::duration<double>(t_end_extend_table - t_start_extend_table).count();
+#endif
+        } else {
+            // std::cout << "DEBUG: Not extending data..." << std::endl;
+            data_map.insert(std::make_pair(strategy, this->data_));
+        }
+
+        strategy->data_ = data_map[strategy];
+
+        // run strategy's init
+        // std::cout << "DEBUG: Calling strategy->init()..." << std::endl;
+#ifdef YABTE_ENABLE_PROFILING
+        auto t_start_strategy_init = std::chrono::high_resolution_clock::now();
+#endif
+        strategy->init();
+#ifdef YABTE_ENABLE_PROFILING
+        auto t_end_strategy_init = std::chrono::high_resolution_clock::now();
+        time_strategy_init_total += std::chrono::duration<double>(t_end_strategy_init - t_start_strategy_init).count();
+#endif
+        // std::cout << "DEBUG: strategy->init() completed." << std::endl;
+    }
+
+    // run event loop
+    // std::cout << "DEBUG: Starting event loop..." << std::endl;
+
+    if (calendar->type()->id() != arrow::Type::TIMESTAMP) {
+        throw std::runtime_error("Date column is not TIMESTAMP type");
+    }
+    const auto calendar_unit =
+        std::static_pointer_cast<arrow::TimestampType>(calendar->type())
+            ->unit();
+
+    // End-of-day tasks run once per calendar date, on that date's last row —
+    // mirroring the Python engine's eod_calendar (groupby(date).max()). Null
+    // timestamps never mark an EOD; the row before a null defers to the next
+    // non-null row's date.
+    const int64_t n_rows = calendar->length();
+    std::vector<bool> is_eod(n_rows, false);
+    {
+        std::optional<std::chrono::sys_days> prev_day;
+        int64_t prev_row = -1;
+        int64_t row = 0;
+        for (const auto& chunk : calendar->chunks()) {
+            auto ts_array =
+                std::static_pointer_cast<arrow::TimestampArray>(chunk);
+            for (int64_t j = 0; j < ts_array->length(); ++j, ++row) {
+                if (ts_array->IsNull(j)) continue;
+                auto day = std::chrono::floor<std::chrono::days>(
+                    timestamp_from_unit(ts_array->Value(j), calendar_unit));
+                if (prev_day && day != *prev_day) {
+                    is_eod[prev_row] = true;
+                }
+                prev_day = day;
+                prev_row = row;
+            }
+        }
+        if (prev_row >= 0) is_eod[prev_row] = true;
+    }
+
+#ifdef YABTE_ENABLE_PROFILING
+    auto end_init = std::chrono::high_resolution_clock::now();
+    double time_init = std::chrono::duration<double>(end_init - start_init).count();
+
+    auto start_loop = std::chrono::high_resolution_clock::now();
+    double time_on_open = 0;
+    double time_orders = 0;
+    double time_on_close = 0;
+    double time_eod = 0;
+#endif
+    
+    int64_t i = 0;
+    for (const auto& chunk : calendar->chunks()) {
+        auto ts_array = std::static_pointer_cast<arrow::TimestampArray>(chunk);
+        for (int64_t j = 0; j < ts_array->length(); ++j, ++i) {
+            if (ts_array->IsNull(j)) {
+                // std::cout << "DEBUG: Skipping row " << i << " (no timestamp)"
+                //           << std::endl;
+                continue;
+            }
+
+            auto ts_val = ts_array->Value(j);
+            // std::cout << "DEBUG: Processing row " << i << " ts=" << ts_val
+            //           << std::endl;
+
+            auto ts_chrono = timestamp_from_unit(ts_val, calendar_unit);
+        // auto day_data = this->data_->Slice(i, 1);
+        // std::cout << "DEBUG: Sliced day_data" << std::endl;
+
+        vector<shared_ptr<Order>> orders_next_ts;
+
+        // open
+        // std::cout << "DEBUG: Calling on_open for strategies..." << std::endl;
+#ifdef YABTE_ENABLE_PROFILING
+        auto t0 = std::chrono::high_resolution_clock::now();
+#endif
+        for (auto& strategy : result.strategies_) {
+            // TODO: mask out non-open available data
+            strategy->current_idx_ = i;
+            // std::cout << "DEBUG: Sliced strategy data for on_open" << std::endl;
+            strategy->on_open();
+            // std::cout << "DEBUG: on_open done for a strategy" << std::endl;
+        }
+#ifdef YABTE_ENABLE_PROFILING
+        auto t1 = std::chrono::high_resolution_clock::now();
+        time_on_open += std::chrono::duration<double>(t1 - t0).count();
+#endif
+
+        // process orders
+        // std::cout << "DEBUG: Processing orders..." << std::endl;
+#ifdef YABTE_ENABLE_PROFILING
+        t0 = std::chrono::high_resolution_clock::now();
+#endif
+        // an order with a key replaces any older queued order with the same key,
+        // before anything executes (later in the queue = newer); as the Python engine
+        remove_duplicate_keys(*result.orders_unprocessed_, result.orders_processed_);
+
+        if (!result.orders_unprocessed_->empty()) {
+            std::stable_sort(result.orders_unprocessed_->begin(),
+                             result.orders_unprocessed_->end(),
+                             [](const shared_ptr<Order>& a,
+                                const shared_ptr<Order>& b) {
+                                 return a->priority_ > b->priority_;
+                             });
+        }
+
+        while (!result.orders_unprocessed_->empty()) {
+            auto order = result.orders_unprocessed_->front();
+            result.orders_unprocessed_->pop_front();
+
+            // set book attribute if needed
+            if (!order->book_) {
+                if (order->book_name_.has_value()) {
+                    auto it = book_map->find(order->book_name_.value());
+                    if (it == book_map->end()) {
+                        throw std::invalid_argument(
+                            "order for unknown book " + order->book_name_.value());
+                    }
+                    order->book_ = it->second;
+                } else {
+                    // fall back to first available book
+                    order->book_ = default_book;
+                }
+            }
+
+            // std::cout << "DEBUG: Applying order..." << std::endl;
+            // Efficient call avoiding slice
+            order->apply(ts_chrono, this->data_, i, *asset_map);
+
+            // add any child orders to next ts
+            orders_next_ts.insert(orders_next_ts.end(),
+                                  order->suborders_.begin(),
+                                  order->suborders_.end());
+
+            // an order left open (e.g. by pre_execute_check) tries again next ts
+            if (order->status_ == OrderStatus::OPEN) {
+                orders_next_ts.push_back(order);
+            } else {
+                result.orders_processed_.push_back(order);
+            }
+        }
+
+        // extend with orders for next ts
+        result.orders_unprocessed_->insert(result.orders_unprocessed_->end(),
+                                           orders_next_ts.begin(),
+                                           orders_next_ts.end());
+
+        // remove older duplicate orders, as the Python engine
+        remove_duplicate_keys(*result.orders_unprocessed_, result.orders_processed_);
+#ifdef YABTE_ENABLE_PROFILING
+        t1 = std::chrono::high_resolution_clock::now();
+        time_orders += std::chrono::duration<double>(t1 - t0).count();
+#endif
+
+        // close
+        // std::cout << "DEBUG: Calling on_close for strategies..." << std::endl;
+#ifdef YABTE_ENABLE_PROFILING
+        t0 = std::chrono::high_resolution_clock::now();
+#endif
+        for (auto& strategy : result.strategies_) {
+            strategy->on_close();
+            // std::cout << "DEBUG: on_close done for a strategy" << std::endl;
+        }
+#ifdef YABTE_ENABLE_PROFILING
+        t1 = std::chrono::high_resolution_clock::now();
+        time_on_close += std::chrono::duration<double>(t1 - t0).count();
+#endif
+
+        // run book end-of-day tasks
+        // std::cout << "DEBUG: Running book EOD tasks..." << std::endl;
+#ifdef YABTE_ENABLE_PROFILING
+        t0 = std::chrono::high_resolution_clock::now();
+#endif
+        if (is_eod[i]) {
+            for (auto& book : result.books_) {
+                // Efficient call avoiding slice
+                book->eod_tasks(ts_chrono, this->data_, i, *asset_map);
+            }
+        }
+#ifdef YABTE_ENABLE_PROFILING
+        t1 = std::chrono::high_resolution_clock::now();
+        time_eod += std::chrono::duration<double>(t1 - t0).count();
+#endif
+        // std::cout << "DEBUG: Finished row " << i << std::endl;
+    }
+    }
+
+#ifdef YABTE_ENABLE_PROFILING
+    auto end_loop = std::chrono::high_resolution_clock::now();
+    double total_time = std::chrono::duration<double>(end_loop - start_loop).count();
+    
+    std::cout << "\n=== C++ Profiling Results ===" << std::endl;
+    std::cout << "Initialization:  " << time_init << " s" << std::endl;
+    std::cout << "  - extend_data:   " << time_extend_data_total << " s (" << (time_extend_data_total/time_init)*100 << "%)" << std::endl;
+    std::cout << "  - ExtendTable:   " << time_extend_table_total << " s (" << (time_extend_table_total/time_init)*100 << "%)" << std::endl;
+    std::cout << "  - strategy->init:" << time_strategy_init_total << " s (" << (time_strategy_init_total/time_init)*100 << "%)" << std::endl;
+    std::cout << "Total Loop Time: " << total_time << " s" << std::endl;
+    std::cout << "on_open:         " << time_on_open << " s (" << (time_on_open/total_time)*100 << "%)" << std::endl;
+    std::cout << "Orders:          " << time_orders << " s (" << (time_orders/total_time)*100 << "%)" << std::endl;
+    std::cout << "on_close:        " << time_on_close << " s (" << (time_on_close/total_time)*100 << "%)" << std::endl;
+    std::cout << "EOD Tasks:       " << time_eod << " s (" << (time_eod/total_time)*100 << "%)" << std::endl;
+    std::cout << "Overhead/Other:  " << (total_time - time_on_open - time_orders - time_on_close - time_eod) << " s" << std::endl;
+    std::cout << "=============================\n" << std::endl;
+#endif
+
+    // std::cout << "DEBUG: Finished running strategy runner" << std::endl;
+    return result;
+}
+
+vector<StrategyRunnerResult> StrategyRunner::run_batch(
+
+    const vector<ParamMap>& params_vector,
+    const optional<unsigned int> num_threads) {
+    unsigned int tp_num_threads = 1;
+    if (num_threads.has_value()) {
+        tp_num_threads = num_threads.value();
+    } else {
+        tp_num_threads = params_vector.size();
+    }
+
+#ifdef EXPER_PY_SUB_INTERP
+    Interpreter interp;
+    // vector<SubInterpreter> subinterps(tp_num_threads);
+    pybind11::gil_scoped_acquire gil;
+    SubInterpreter foo;
+    ThreadsAllowedScope t1;
+#endif
+
+    BS::thread_pool pool{tp_num_threads};
+
+    // #ifdef EXPER_PY_SUB_INTERP
+    //     Interpreter interp;
+    //     //     ThreadsAllowedScope t1;
+    //     //     vector<SubInterpreter> subinterps(tp_num_threads);
+    //     // #endif
+    
+        BS::multi_future<StrategyRunnerResult> sequence_future =
+            pool.submit_sequence<int>(0, params_vector.size(),
+                                      [this, &params_vector](int i) {
+                                          return this->run(params_vector[i]);
+                                      });
+        std::vector<StrategyRunnerResult> results = sequence_future.get();
+        return results;
+    }
+    
+    }  // namespace YABTE::BackTest

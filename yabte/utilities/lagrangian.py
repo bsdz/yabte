@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional
+from typing import Any, Callable, List, Optional
 
 import numpy as np
 from scipy.optimize import OptimizeResult, root
@@ -9,8 +9,9 @@ from scipy.optimize._numdiff import approx_derivative
 @dataclass(kw_only=True)
 class Lagrangian:
     x0: np.ndarray
-    objective: Callable[[np.ndarray], float]
-    constraints: List[Callable[[np.ndarray], float]] = field(default_factory=list)
+    # functions of x returning a scalar (a float or 0-d array)
+    objective: Callable[[np.ndarray], Any]
+    constraints: List[Callable[[np.ndarray], Any]] = field(default_factory=list)
     optimize_result: Optional[OptimizeResult] = None
 
     def f(self, x):

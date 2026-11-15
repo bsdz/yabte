@@ -1,12 +1,12 @@
-# TODO: use absolute imports until mypyc fixes relative imports in __init__.py
-# (https://github.com/mypyc/mypyc/issues/996)
 from yabte.backtest.asset import (
     ADFI_AVAILABLE_AT_CLOSE,
     ADFI_AVAILABLE_AT_OPEN,
     ADFI_REQUIRED,
     AssetDataFieldInfo,
     AssetName,
+    MissingPriceError,
     OHLCAsset,
+    find_missing_data,
 )
 from yabte.backtest.book import Book, BookMandate, BookName
 from yabte.backtest.order import (
@@ -44,4 +44,6 @@ __all__ = [
     "ADFI_AVAILABLE_AT_CLOSE",
     "ADFI_AVAILABLE_AT_OPEN",
     "ADFI_REQUIRED",
+    "MissingPriceError",
+    "find_missing_data",
 ]
