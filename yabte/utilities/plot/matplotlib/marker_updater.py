@@ -63,9 +63,7 @@ class MarkerUpdater:
 
                         for path in ax.collections:
                             if "size" in args["features"]:
-                                path.set_sizes(
-                                    [s * facS**2 for s in path.get_sizes()]
-                                )
+                                path.set_sizes([s * facS**2 for s in path.get_sizes()])
 
                             if "alpha" in args["features"]:
                                 alpha = path.get_alpha()

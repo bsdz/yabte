@@ -7,10 +7,6 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-# TODO: use explicit imports until mypyc fixes attribute lookups in dataclass
-# (https://github.com/mypyc/mypyc/issues/1000)
-from pandas import Timestamp  # type: ignore
-
 if TYPE_CHECKING:
     from .asset import AssetName
 
@@ -50,8 +46,8 @@ class CashTransaction(Transaction):
 class Trade(Transaction):
     """A frozen record of a trade transaction.
 
-    A negative `quantity` represents a sell trade and a positive
-    `quantity` represents a buy trade.
+    A negative `quantity` represents a sell trade and a positive `quantity` represents a
+    buy trade.
     """
 
     quantity: Decimal

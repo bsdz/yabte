@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.abspath(".."))
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "yabte"
-copyright = "2023, Blair Azzopardi"
+copyright = "2023-2026, Blair Azzopardi"
 author = "Blair Azzopardi"
 
 # -- General configuration ---------------------------------------------------
@@ -37,7 +37,6 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = "sphinx_rtd_theme"
-html_static_path = ["_static"]
 
 
 autodoc_typehints_format = "short"

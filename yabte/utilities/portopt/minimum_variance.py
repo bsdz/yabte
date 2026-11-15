@@ -64,7 +64,11 @@ def minimum_variance_numeric_slsqp(
         ones / m,
         method="SLSQP",
         constraints=(
-            {"type": "eq", "fun": lambda x: r - x.T @ mu, "jac": lambda x: -mu.values},
+            {
+                "type": "eq",
+                "fun": lambda x: r - x.T @ mu,
+                "jac": lambda x: -np.asarray(mu),
+            },
             {"type": "eq", "fun": lambda x: 1 - x.T @ ones, "jac": lambda x: -ones},
         ),
         tol=1e-15,

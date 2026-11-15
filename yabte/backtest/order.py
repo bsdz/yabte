@@ -8,10 +8,9 @@ from enum import Enum
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
-from mypy_extensions import mypyc_attr
 
 from ._helpers import ensure_decimal, ensure_enum
-from .asset import Asset, AssetName
+from .asset import Asset, AssetName, _require_price
 from .book import Book, BookName
 from .transaction import Trade
 
@@ -49,60 +48,11 @@ class OrderSizeType(Enum):
     """Size represent notional amount."""
 
     BOOK_PERCENT = 3
-    """Size is a percentage of book value."""
+    """Size is a percentage of the book's cash.
 
-
-@mypyc_attr(allow_interpreted_subclasses=True)
-@dataclass(kw_only=True)
-class Order:
-    """Base class for all orders."""
-
-    status: OrderStatus = OrderStatus.OPEN
-    """Status of order."""
-
-    book: BookName | Book | None = field(repr=False, default=None)
-    """Target book."""
-
-    suborders: List[Order] = field(default_factory=list)
-    """Additional orders to be executed the following timestep."""
-
-    label: Optional[str] = None
-    """Label to assist in matching / filtering."""
-
-    priority: int = 0
-    """Each day orders are sorted by this field and executed in order."""
-
-    key: Optional[str] = None
-    """Unique key for this order.
-
-    If a key is set then only the newest order with this key is kept. Older orders with
-    the same key will be removed.
+    For basket orders, each weight is instead a percentage of the book's cash plus its
+    positions in the basket's assets, valued at the traded prices, and size is ignored.
     """
-
-    def __post_init__(self):
-        pass
-
-    def _book_trades(self, trades):
-        # test then book trades, do any post complete tasks
-        if self.book.test_trades(trades):
-            self.book.add_transactions(trades)
-            self.status = OrderStatus.COMPLETE
-            self.post_complete(trades)
-
-        else:
-            self.status = OrderStatus.MANDATE_FAILED
-
-    def post_complete(self, trades: List[Trade]):
-        """Called after and with trades that have been successfully booked.
-
-        It can append new orders to suborders for execution in the following timestep.
-        """
-        pass
-
-    def apply(self, ts: pd.Timestamp, day_data: pd.Series, asset_map: Dict[str, Asset]):
-        """Applies order to `self.book` for time `ts` using provided `day_data` and
-        dictionary of asset information `asset_map`."""
-        raise NotImplementedError("The apply methods needs to be implemented.")
 
 
 class Orders:
@@ -155,7 +105,59 @@ class Orders:
         return removed
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
+@dataclass(kw_only=True)
+class Order:
+    """Base class for all orders."""
+
+    status: OrderStatus = OrderStatus.OPEN
+    """Status of order."""
+
+    book: BookName | Book | None = field(repr=False, default=None)
+    """Target book."""
+
+    suborders: List[Order] = field(default_factory=list)
+    """Additional orders to be executed the following timestep."""
+
+    label: Optional[str] = None
+    """Label to assist in matching / filtering."""
+
+    priority: int = 0
+    """Each day orders are sorted by this field and executed in order."""
+
+    key: Optional[str] = None
+    """Unique key for this order.
+
+    If a key is set then only the newest order with this key is kept: before each
+    timestep's orders execute, and again after, older queued orders with the same key
+    are removed with status `REPLACED`.
+    """
+
+    def __post_init__(self):
+        pass
+
+    def _book_trades(self, trades):
+        # test then book trades, do any post complete tasks
+        if self.book.test_trades(trades):
+            self.book.add_transactions(trades)
+            self.status = OrderStatus.COMPLETE
+            self.post_complete(trades)
+
+        else:
+            self.status = OrderStatus.MANDATE_FAILED
+
+    def post_complete(self, trades: List[Trade]):
+        """Called after and with trades that have been successfully booked.
+
+        It can append new orders to suborders for execution in the following timestep.
+        """
+        pass
+
+    def apply(self, ts: pd.Timestamp, day_data: pd.Series, asset_map: Dict[str, Asset]):
+        """Applies order to `self.book` for time `ts` using provided `day_data` and
+        dictionary of asset information `asset_map`."""
+        raise NotImplementedError("The apply methods needs to be implemented.")
+
+
 @dataclass(kw_only=True)
 class SimpleOrder(Order):
     """Simple market order."""
@@ -182,7 +184,14 @@ class SimpleOrder(Order):
     ) -> Tuple[Decimal, Decimal]:
         asset = asset_map[self.asset_name]
         asset_day_data = asset._filter_data(day_data)
-        trade_price = asset.intraday_traded_price(asset_day_data, size=self.size)
+        # set to ts since MultiIndexRowWrapper doesn't support .name access for timestamp, and some asset price methods might need it
+        asset_day_data.name = day_data.timestamp
+        trade_price = _require_price(
+            asset.intraday_traded_price(asset_day_data, size=self.size),
+            asset.name,
+            day_data.timestamp,
+            "traded",
+        )
 
         if self.size_type == OrderSizeType.QUANTITY:
             quantity = self.size
@@ -202,11 +211,10 @@ class SimpleOrder(Order):
         """Called with the current timestep and calculated trade price before the trade
         is executed.
 
-        If it returns `None`, the trade is executed as normal. It can
-        return `OrderStatus.CANCELLED` to indicate the trade should be
-        cancelled or `OrderStatus.OPEN` to indicate the trade should not
-        be executed in the current timestep and processed in the
-        following timestep.
+        If it returns `None`, the trade is executed as normal. It can return
+        `OrderStatus.CANCELLED` to indicate the trade should be cancelled or
+        `OrderStatus.OPEN` to indicate the trade should not be executed in the current
+        timestep and processed in the following timestep.
         """
         return None
 
@@ -238,7 +246,6 @@ class PositionalOrderCheckType(Enum):
     ZERO_POS = 2
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class PositionalOrder(SimpleOrder):
     """Ensures current position is `size` and will close out existing positions to
@@ -298,7 +305,6 @@ class PositionalOrder(SimpleOrder):
         self._book_trades(trades)
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass
 class BasketOrder(Order):
     """Combine multiple assets into a single order."""
@@ -327,7 +333,12 @@ class BasketOrder(Order):
         assets = [asset_map[an] for an in self.asset_names]
         assets_day_data = [a._filter_data(day_data) for a in assets]
         trade_prices = [
-            asset.intraday_traded_price(add, size=self.size)
+            _require_price(
+                asset.intraday_traded_price(add, size=self.size),
+                asset.name,
+                day_data.timestamp,
+                "traded",
+            )
             for asset, add in zip(assets, assets_day_data)
         ]
 
@@ -380,7 +391,6 @@ class BasketOrder(Order):
         self._book_trades(trades)
 
 
-@mypyc_attr(allow_interpreted_subclasses=True)
 @dataclass(kw_only=True)
 class PositionalBasketOrder(BasketOrder):
     """Similar to a :py:class:`BasketOrder` but will close out existing positions if

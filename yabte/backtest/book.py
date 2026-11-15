@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Sequence, TypeAlias
 import pandas as pd
 
 from ._helpers import ensure_decimal
-from .asset import Asset, AssetName
+from .asset import Asset, AssetName, _require_price
 from .transaction import CashTransaction, Trade, Transaction
 
 logger = logging.getLogger(__name__)
@@ -31,8 +31,8 @@ BookName: TypeAlias = str
 class Book:
     """Record of asset trades and positions including cash.
 
-    A `name` can be provided and the default `cash` value can be changed
-    to a non-zero amount.
+    A `name` can be provided and the default `cash` value can be changed to a non-zero
+    amount.
     """
 
     name: BookName
@@ -119,9 +119,18 @@ class Book:
         cash = float(self.cash)
         mtm = float(
             sum(
-                asset.end_of_day_price(asset._filter_data(day_data)) * q
-                for an, q in self.positions.items()
-                if (asset := asset_map.get(an))
+                (
+                    _require_price(
+                        asset.end_of_day_price(asset._filter_data(day_data)),
+                        an,
+                        ts,
+                        "end of day",
+                    )
+                    * q
+                    for an, q in self.positions.items()
+                    if q and (asset := asset_map.get(an))
+                ),
+                Decimal(0),
             )
         )
         self._history.append([ts, cash, mtm, cash + mtm])

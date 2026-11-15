@@ -1,15 +1,14 @@
-import concurrent.futures
 import logging
-from concurrent.futures import ProcessPoolExecutor
+import os
+import pickle
+import sys
+import warnings
+from concurrent.futures import Executor, ProcessPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, cast
 
 import pandas as pd
-
-# TODO: use explicit imports until mypyc fixes attribute lookups in dataclass
-# (https://github.com/mypyc/mypyc/issues/1000)
-from pandas import DataFrame, Series, Timestamp  # type: ignore
 
 from .asset import Asset, AssetName
 from .book import Book, BookMandate, BookName
@@ -20,10 +19,47 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["StrategyRunner"]
 
+# Per-process runner for StrategyRunner.run_batch's default process pool. Set once
+# per worker by the pool initializer so the data is sent to each worker once rather
+# than with every parameter set.
+_batch_worker_runner: "StrategyRunner | None" = None
+
+
+def _init_batch_worker(runner: "StrategyRunner"):
+    global _batch_worker_runner
+    _batch_worker_runner = runner
+
+
+def _run_batch_item(params: Dict[str, Any] | None) -> "StrategyRunnerResult":
+    assert _batch_worker_runner is not None
+    return _batch_worker_runner.run(params)
+
+
+def _process_safe_reason(runner: "StrategyRunner") -> str | None:
+    """Return why `runner` can't be run in worker processes, or None if it can.
+
+    Worker processes are started by forkserver/spawn on most platforms, so each strategy
+    class must be importable by name in a fresh interpreter, not just picklable here.
+    """
+    main_file = getattr(sys.modules.get("__main__"), "__file__", None)
+    for strat in runner.strategies:
+        cls = type(strat)
+        if "<locals>" in cls.__qualname__:
+            return f"strategy class {cls.__qualname__} is defined inside a function"
+        if cls.__module__ == "__main__" and main_file is None:
+            return (
+                f"strategy class {cls.__name__} is defined interactively "
+                "(e.g. in a notebook)"
+            )
+    try:
+        pickle.dumps(runner)
+    except Exception as e:
+        return f"the runner can't be pickled ({e})"
+    return None
+
 
 def _check_data(df, asset_map):
     """Check data structure correct."""
-
     if not isinstance(df.index, pd.DatetimeIndex):
         raise ValueError("data index must be a datetimeindex")
     if not df.index.is_monotonic_increasing:
@@ -95,14 +131,19 @@ class StrategyRunnerResult:
         )
 
 
+import pyarrow as pa
+
+from .row_wrapper import MultiIndexRowWrapper
+
+
 @dataclass(kw_only=True)
-class StrategyRunner:
+class PythonStrategyRunner:
     """Encapsulates the execution of multiple strategies.
 
-    Orders are captured in `orders_processed` and `orders_unprocessed`.
-    `books` is a list of books and if none provided a single book is
-    created called 'Main'. After execution summary book and trade
-    histories are captured in `book_history` and `transaction_history`.
+    Orders are captured in `orders_processed` and `orders_unprocessed`. `books` is a
+    list of books and if none provided a single book is created called 'Main'. After
+    execution summary book and trade histories are captured in `book_history` and
+    `transaction_history`.
     """
 
     data: pd.DataFrame = field()
@@ -136,10 +177,9 @@ class StrategyRunner:
         if not self.books:
             self.books = [Book(name="Main", mandates=self.mandates)]
 
-    def run(self, params: Dict[str, Any] = None) -> StrategyRunnerResult:
+    def run(self, params: Dict[str, Any] | None = None) -> StrategyRunnerResult:
         """Execute each strategy through time."""
-
-        params = pd.Series(params or {}, dtype=object)
+        params_series = pd.Series(params or {}, dtype=object)
 
         srr = StrategyRunnerResult(
             assets=deepcopy(self.assets),  # should not be mutable
@@ -152,10 +192,14 @@ class StrategyRunner:
         book_map = {book.name: book for book in srr.books}
 
         # calendar
-        calendar = self.data.index
+        calendar = pd.DatetimeIndex(self.data.index)
+        # the last row of each date, in the index's own timezone
+        eod_calendar = set(
+            pd.Series(calendar, index=calendar.date).groupby(level=0).max()
+        )
 
         for strat in srr.strategies:
-            strat.params = params
+            strat.params = params_series
             strat.orders = srr._orders_unprocessed
             strat.books = book_map
             strat.assets = asset_map
@@ -165,9 +209,21 @@ class StrategyRunner:
             strat.init()
             strat._data_lock = True
 
-        # run event loop
-        for ts in calendar:
-            logger.info(f"Processing timestep {ts}")
+        # Iterate the data as a flat Arrow table, one row dict per timestep, which is
+        # much faster than df.loc[ts]. Columns are flattened: ('AAPL', 'Close') ->
+        # 'AAPL.Close'.
+        df_flat = self.data.copy()
+        if isinstance(df_flat.columns, pd.MultiIndex):
+            df_flat.columns = [f"{col[0]}.{col[1]}" for col in df_flat.columns]
+        pa_table = pa.Table.from_pandas(df_flat)
+
+        row_iter = (row for batch in pa_table.to_batches() for row in batch.to_pylist())
+
+        for ts, row_dict in zip(calendar, row_iter):
+            logger.debug(f"Processing timestep {ts}")
+
+            # Wrap row for compatibility
+            day_data_wrapper = MultiIndexRowWrapper(row_dict, ts)
 
             # open
             for strat in srr.strategies:
@@ -177,8 +233,12 @@ class StrategyRunner:
                 strat.on_open()
                 strat._mask_open = False
 
-            # order applied with ts's data
-            day_data = self.data.loc[ts, :]
+            day_data = day_data_wrapper
+
+            # an order with a key replaces older queued orders with the same key
+            # before anything executes, so only the newest can fill
+            replaced = srr._orders_unprocessed.remove_duplicate_keys()
+            srr.orders_processed.extend(replaced)
 
             # sort orders by priority
             srr._orders_unprocessed.sort_by_priority()
@@ -189,9 +249,12 @@ class StrategyRunner:
                 order = srr._orders_unprocessed.popleft()
 
                 # set book attribute if needed
-                if not isinstance(order.book, Book):
-                    # fall back to first available book
-                    order.book = book_map.get(order.book, srr.books[0])
+                if order.book is None:
+                    order.book = srr.books[0]
+                elif not isinstance(order.book, Book):
+                    if order.book not in book_map:
+                        raise ValueError(f"order for unknown book {order.book}")
+                    order.book = book_map[order.book]
 
                 order.apply(ts, day_data, asset_map)
 
@@ -217,18 +280,152 @@ class StrategyRunner:
                 strat.on_close()
 
             # run book end-of-day tasks
-            for book in srr.books:
-                book.eod_tasks(ts, day_data, asset_map)
+            if ts in eod_calendar:
+                for book in srr.books:
+                    # the row wrapper stands in for a row Series
+                    book.eod_tasks(ts, cast(pd.Series, day_data), asset_map)
 
         return srr
+
+
+class StrategyRunner:
+    """Runs strategies over data and returns a :py:class:`StrategyRunnerResult`.
+
+    `data` has a unique, increasing `DatetimeIndex` and two column levels, asset and
+    field, with columns for every asset in `assets`. Each row is one timestep: a day,
+    or an intraday bar. Books run their end-of-day tasks (interest, and recording
+    `book_history`) once per date, after its last row. Dates are taken in the index's
+    own timezone.
+
+    `books` defaults to a single book named ``Main`` with no cash. `mandates`
+    (experimental) only applies to that default book; with explicit `books`, set
+    mandates on each :py:class:`Book` instead.
+
+    `engine` selects the implementation:
+
+    - ``"python"``, the reference implementation, supports everything.
+    - ``"cpp"`` runs the event loop in the compiled C++ extension and gives the same
+      results. Mandates raise `ValueError` and basket orders raise
+      `NotImplementedError`. Custom asset and order subclasses are converted to
+      their base classes, so overridden hooks such as `pre_execute_check` don't run.
+    - ``"auto"``, the default, currently means ``"python"``.
+    """
+
+    def __init__(
+        self,
+        data: pd.DataFrame,
+        assets: List[Asset],
+        strategies: List[Strategy],
+        mandates: Dict[AssetName, BookMandate] | None = None,
+        books: List[Book] | None = None,
+        engine: str = "auto",
+    ):
+        self.data = data
+        self.assets = assets
+        self.strategies = strategies
+        self.mandates = mandates or {}
+        self.books = books or []
+        self.engine = engine
+
+        if self.engine == "auto":
+            # Default to python for now until C++ is fully integrated/tested
+            self.engine = "python"
+
+    def run(self, params: Dict[str, Any] | None = None) -> StrategyRunnerResult:
+        """Run once and return the result.
+
+        `params` is passed to each strategy as `self.params`. The result holds copies of
+        the books, strategies and orders, so the runner can be run again.
+        """
+        if self.engine == "python":
+            return PythonStrategyRunner(
+                data=self.data,
+                assets=self.assets,
+                strategies=self.strategies,
+                mandates=self.mandates,
+                books=self.books,
+            ).run(params)
+        elif self.engine == "cpp":
+            from .runner_cpp import CppStrategyRunner
+
+            cpp_runner = CppStrategyRunner(
+                data=self.data,
+                assets=self.assets,
+                strategies=self.strategies,
+                mandates=self.mandates,
+                books=self.books,
+            )
+            return cpp_runner.run(params)
+        else:
+            raise ValueError(f"Unknown engine: {self.engine}")
 
     def run_batch(
         self,
         params_iterable: Iterable[Dict[str, Any]],
-        executor: ProcessPoolExecutor | None = None,
+        executor: Executor | None = None,
     ) -> List[StrategyRunnerResult]:
-        """Run a set of parameter combinations."""
+        """Run a set of parameter combinations, returning results in order.
 
-        executor = executor or concurrent.futures.ThreadPoolExecutor()
-        with executor:
-            return list(executor.map(self.run, params_iterable))
+        With no `executor`:
+
+        - ``engine="cpp"`` with only native C++ strategies uses the C++ engine's
+          own thread pool, converting the data once for all runs.
+        - Otherwise (``engine="python"``, or any Python strategy) it runs in a
+          process pool, sending the data to each worker once. Threads aren't used
+          because Python strategy code holds the GIL, which makes thread pools
+          slower than running serially. If the strategies can't be used from
+          another process (e.g. a class defined inside a function or in a
+          notebook), this warns and runs serially instead.
+
+        A supplied `executor` is used as given, mapping :py:meth:`run` over the
+        params, and is shut down afterwards.
+        """
+        params_list = list(params_iterable)
+        if not params_list:
+            return []
+
+        if executor is not None:
+            with executor:
+                return list(executor.map(self.run, params_list))
+
+        cpp_runner = None
+        if self.engine == "cpp":
+            from .runner_cpp import CppStrategyRunner, yabte_cpp
+
+            cpp_runner = CppStrategyRunner(
+                data=self.data,
+                assets=self.assets,
+                strategies=self.strategies,
+                mandates=self.mandates,
+                books=self.books,
+            )
+            if all(isinstance(s, yabte_cpp.Strategy) for s in self.strategies):
+                return cpp_runner.run_batch(params_list)
+
+        if len(params_list) == 1:
+            return [self.run(params_list[0])]
+
+        reason = _process_safe_reason(self)
+        if reason is not None:
+            warnings.warn(
+                f"run_batch is running serially because {reason}. Define strategy "
+                "classes at module level in an importable module to run in "
+                "parallel, or pass an executor.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            if cpp_runner is not None:
+                # one thread: still converts the data only once
+                return cpp_runner.run_batch(params_list, num_threads=1)
+            return [self.run(p) for p in params_list]
+
+        max_workers = min(
+            len(params_list),
+            getattr(os, "process_cpu_count", os.cpu_count)() or 1,
+        )
+        with ProcessPoolExecutor(
+            max_workers=max_workers,
+            initializer=_init_batch_worker,
+            initargs=(self,),
+        ) as pool:
+            return list(pool.map(_run_batch_item, params_list))

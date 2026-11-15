@@ -24,3 +24,10 @@ def ensure_decimal(value: Any) -> Decimal:
     if isinstance(value, (str, float, int)):
         return Decimal(value)
     raise ValueError(f"Unexpected decimal type {value}")
+
+
+def round_dp(value: Decimal, dp: int | None) -> Decimal:
+    if dp is not None:
+        return round(value, dp)
+    else:
+        return value

@@ -20,12 +20,10 @@ def weiner_simulate_paths(
 ):
     """Generate simulated Weiner paths.
 
-    `stdev` is the increment size, `R` a correlation matrix, `n_steps`
-    is how many time steps, `n_sims` the number of simulations and `rng`
-    a numpy random number generator (optional). If `stdev` is a scalar
-    it will be broadcasted to the size of `n_sims`.
+    `stdev` is the increment size, `R` a correlation matrix, `n_steps` is how many time
+    steps, `n_sims` the number of simulations and `rng` a numpy random number generator
+    (optional). If `stdev` is a scalar it will be broadcasted to the size of `n_sims`.
     """
-
     R = np.atleast_2d(R)
     stdev = np.resize(stdev, n_sims).reshape(n_sims, 1)
 
