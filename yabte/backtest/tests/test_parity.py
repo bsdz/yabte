@@ -317,6 +317,56 @@ class TestFillPriceParity(ParityAssertionsMixin, unittest.TestCase):
                     self.run_engine(engine, "open", data)
 
 
+class TestCloseFirstParity(ParityAssertionsMixin, unittest.TestCase):
+    """`PositionalOrder(close_first=False)` trades only the difference."""
+
+    TARGETS = ["5", "8.1", "8.1", "-2.7", "0.3", "0"]
+
+    def run_engine(self, engine, close_first):
+        idx = pd.bdate_range("2025-01-06", periods=len(self.TARGETS))
+        data = pd.DataFrame(
+            {
+                ("A", f): [100.0 + i for i in range(len(idx))]
+                for f in ["High", "Low", "Close"]
+            },
+            index=idx,
+        )
+        targets = self.TARGETS
+
+        class Rebalance(Strategy):
+            def on_open(self):
+                target = targets[len(self.data) - 1]
+                self.orders.append(
+                    PositionalOrder(
+                        asset_name="A", size=target, close_first=close_first
+                    )
+                )
+
+        return StrategyRunner(
+            data=data,
+            assets=[OHLCAsset(name="A")],
+            strategies=[Rebalance()],
+            books=[Book(name="Main", cash="100000")],
+            engine=engine,
+        ).run()
+
+    def test_trades(self):
+        skip_or_fail_without_cpp(self)
+        expected = {
+            True: ["5", "-5", "8.1", "-8.1", "-2.7", "2.7", "0.3", "-0.3"],
+            False: ["5", "3.1", "-10.8", "3", "-0.3"],
+        }
+        for close_first, quantities in expected.items():
+            with self.subTest(close_first=close_first):
+                res_py = self.run_engine("python", close_first)
+                res_cpp = self.run_engine("cpp", close_first)
+                self.assertEqual(
+                    res_py.transaction_history.quantity.to_list(),
+                    [Decimal(q) for q in quantities],
+                )
+                self.assertResultParity(res_py, res_cpp, context=str(close_first))
+
+
 class TestCppRejectsSubclasses(unittest.TestCase):
     """The C++ engine refuses subclasses whose overrides it would ignore."""
 

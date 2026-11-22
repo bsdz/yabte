@@ -9,7 +9,8 @@ Features
 * Multiple assets.
 * OHLC Asset, filling orders at the High/Low midpoint, the Open or the Close. Extendable (e.g support additional fields, e.g. Volatility, or entirely different fields, e.g. Barrels per day).
 * Multiple books, each with optional interest on cash.
-* Positional and Basket orders. Extendible (e.g. can support stop loss).
+* Positional and Basket orders. Positional orders can close and reopen, or trade only
+  the difference to the target. Extendible (e.g. can support stop loss).
 * Batch runs (for optimization).
 * Captures book history including transactions & daily cash, MtM and total values.
 * Missing prices raise `MissingPriceError` when a run needs them, and `find_missing_data` lists gaps before a run.

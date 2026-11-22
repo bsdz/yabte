@@ -246,6 +246,38 @@ class PositionalOrderCheckType(Enum):
     ZERO_POS = 2
 
 
+def _trades_to_target(
+    order: Order,
+    ts: pd.Timestamp,
+    asset: Asset,
+    current_position: Decimal,
+    trade_quantity: Decimal,
+    trade_price: Decimal,
+    close_first: bool,
+) -> List[Trade]:
+    """Trades taking `current_position` to `trade_quantity`: a close and an open if
+    `close_first`, otherwise one trade for the difference."""
+
+    def trade(quantity):
+        return Trade(
+            asset_name=asset.name,
+            ts=ts,
+            quantity=quantity,
+            price=trade_price,
+            order_label=order.label,
+        )
+
+    if not close_first:
+        difference = asset.round_quantity(trade_quantity - current_position)
+        return [trade(difference)] if difference != 0 else []
+    trades = []
+    if current_position:
+        trades.append(trade(-current_position))  # close out existing position
+    if trade_quantity != 0:
+        trades.append(trade(trade_quantity))
+    return trades
+
+
 @dataclass(kw_only=True)
 class PositionalOrder(SimpleOrder):
     """Ensures current position is `size` and will close out existing positions to
@@ -253,6 +285,13 @@ class PositionalOrder(SimpleOrder):
 
     check_type: PositionalOrderCheckType = PositionalOrderCheckType.POS_TQ_DIFFER
     """Condition type to determine if a trade is required."""
+
+    close_first: bool = True
+    """How to reach the target when a trade is needed.
+
+    `True` closes the current position and opens the target, booking two trades. `False`
+    books one trade for the difference, as a rebalance would.
+    """
 
     def __post_init__(self):
         super().__post_init__()
@@ -278,29 +317,16 @@ class PositionalOrder(SimpleOrder):
             raise RuntimeError(f"Unexpected check type {self.check_type}")
 
         trades = []
-
         if needs_trades:  # otherwise we're done
-            if current_position:
-                # close out existing position
-                trades.append(
-                    Trade(
-                        asset_name=self.asset_name,
-                        ts=ts,
-                        quantity=-current_position,
-                        price=trade_price,
-                        order_label=self.label,
-                    )
-                )
-            if trade_quantity != 0:
-                trades.append(
-                    Trade(
-                        asset_name=self.asset_name,
-                        ts=ts,
-                        quantity=trade_quantity,
-                        price=trade_price,
-                        order_label=self.label,
-                    )
-                )
+            trades = _trades_to_target(
+                self,
+                ts,
+                asset_map[self.asset_name],
+                current_position,
+                trade_quantity,
+                trade_price,
+                self.close_first,
+            )
 
         self._book_trades(trades)
 
@@ -397,6 +423,10 @@ class PositionalBasketOrder(BasketOrder):
     they do not match requested weights."""
 
     check_type: PositionalOrderCheckType = PositionalOrderCheckType.POS_TQ_DIFFER
+    """Condition type to determine if a trade is required."""
+
+    close_first: bool = True
+    """As :py:attr:`PositionalOrder.close_first`, for each asset in the basket."""
 
     def apply(self, ts: pd.Timestamp, day_data: pd.Series, asset_map: Dict[str, Asset]):
         if not self.book or not isinstance(self.book, Book):
@@ -416,31 +446,18 @@ class PositionalBasketOrder(BasketOrder):
             raise RuntimeError(f"Unexpected check type {self.check_type}")
 
         trades = []
-
         if needs_trades:  # otherwise we're done
             for asset_name, current_position, (trade_quantity, trade_price) in zip(
                 self.asset_names, current_positions, trade_quantity_prices
             ):
-                if current_position:
-                    # close out existing position
-                    trades.append(
-                        Trade(
-                            asset_name=asset_name,
-                            ts=ts,
-                            quantity=-current_position,
-                            price=trade_price,
-                            order_label=self.label,
-                        )
-                    )
-                if trade_quantity != 0:
-                    trades.append(
-                        Trade(
-                            asset_name=asset_name,
-                            ts=ts,
-                            quantity=trade_quantity,
-                            price=trade_price,
-                            order_label=self.label,
-                        )
-                    )
+                trades += _trades_to_target(
+                    self,
+                    ts,
+                    asset_map[asset_name],
+                    current_position,
+                    trade_quantity,
+                    trade_price,
+                    self.close_first,
+                )
 
         self._book_trades(trades)

@@ -352,6 +352,45 @@ class StrategyRunnerTestCase(ParityAssertionsMixin, NumpyTestCase):
         # Note: mandates are not supported in C++ yet, but this test doesn't use mandates.
         self._run_and_compare("test_spread_simple", kwargs, params)
 
+    def test_positional_basket_order_close_first(self):
+        idx = pd.bdate_range("2025-01-06", periods=3)
+        data = pd.DataFrame(
+            {(a, "Close"): [10.0, 11.0, 12.0] for a in ["A", "B"]}, index=idx
+        )
+
+        class Rebalance(Strategy):
+            close_first = True
+
+            def on_open(self):
+                n = len(self.data)
+                self.orders.append(
+                    PositionalBasketOrder(
+                        asset_names=["A", "B"],
+                        weights=[1, 2],
+                        size=n * 10,
+                        close_first=self.close_first,
+                    )
+                )
+
+        for close_first, a_trades in [
+            (True, [10, -10, 20, -20, 30]),
+            (False, [10, 10, 10]),
+        ]:
+            with self.subTest(close_first=close_first):
+                strategy = Rebalance()
+                strategy.close_first = close_first
+                srr = StrategyRunner(
+                    data=data,
+                    assets=[OHLCAsset(name="A"), OHLCAsset(name="B")],
+                    strategies=[strategy],
+                ).run()
+                th = srr.transaction_history
+                self.assertEqual(
+                    th[th.asset_name == "A"].quantity.to_list(),
+                    [Decimal(q) for q in a_trades],
+                )
+                self.assertEqual(srr.books[0].positions["B"], Decimal(60))
+
     def test_basket_order_quantity(self):
         # Basket orders might not be fully supported in C++ yet if they are expanded in Python.
         # But if they are just orders that expand to suborders, and suborders are supported, it might work?

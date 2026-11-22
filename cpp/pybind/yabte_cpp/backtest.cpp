@@ -521,12 +521,14 @@ PYBIND11_MODULE(_yabte_backtest_lib, m) {
         .def(py::init<const string &, const double &, const OrderSizeType &,
                       const PositionalOrderCheckType &,
                       const optional<string> &, const optional<string> &,
-                      const int, const optional<string> &>(),
+                      const int, const optional<string> &, bool>(),
              py::arg("asset_name"), py::arg("size"),
              py::arg("size_type") = OrderSizeType::QUANTITY,
              py::arg("check_type") = PositionalOrderCheckType::POS_TQ_DIFFER,
              py::arg("book_name") = nullopt, py::arg("label") = nullopt,
-             py::arg("priority") = 0, py::arg("key") = nullopt);
+             py::arg("priority") = 0, py::arg("key") = nullopt,
+             py::arg("close_first") = true)
+        .def_readonly("close_first", &PositionalOrder::close_first_);
 
     py::bind_deque<OrderDeque>(m, "OrderDeque");
 

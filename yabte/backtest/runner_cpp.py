@@ -514,6 +514,7 @@ class CppStrategyAdapter(yabte_cpp.Strategy if yabte_cpp else object):  # type: 
                             label,
                             priority,
                             key,
+                            py_ord.close_first,
                         )
                     except Exception as e:
                         raise RuntimeError(

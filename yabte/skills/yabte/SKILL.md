@@ -137,10 +137,12 @@ All orders take `book` (a book name; omit it for the first book), `label`, `prio
   - `QUANTITY` (the default): units.
   - `NOTIONAL`: money.
   - `BOOK_PERCENT`: a percentage of the book's **cash**, not its total value.
-- `PositionalOrder(...)` takes the same arguments, but `size` is the target position. It
-  closes the current position and opens the new one. `check_type` decides whether it
-  trades: `PositionalOrderCheckType.POS_TQ_DIFFER` (the default) when the position
-  differs from the target, or `ZERO_POS` only when the position is zero.
+- `PositionalOrder(...)` takes the same arguments, but `size` is the target position.
+  `check_type` decides whether it trades: `PositionalOrderCheckType.POS_TQ_DIFFER` (the
+  default) when the position differs from the target, or `ZERO_POS` only when the
+  position is zero. By default it closes the current position and opens the new one,
+  booking two trades. With `close_first=False` it books one trade for the difference,
+  which suits daily rebalancing such as a delta hedge.
 - `BasketOrder(asset_names, weights, size, size_type)` and `PositionalBasketOrder`
   trade several assets at once. With `BOOK_PERCENT`, `weights` are percentages of cash
   plus positions at the traded prices, and `size` is ignored. They are Python engine
