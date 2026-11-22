@@ -250,6 +250,9 @@ The C++ engine's limits:
   Python engine for those, or `fill_price` for a different fill.
 - A timezone-aware index works. Days are its local dates, and a local time that occurs
   twice (clocks going back) raises `ValueError`.
+- Python strategies get their params unchanged, objects and lists included. Native C++
+  strategies only take numbers, strings and bools, and other values raise `TypeError`
+  naming the keys.
 
 ## Parameter sweeps
 

@@ -1,3 +1,4 @@
+import numbers
 import os
 from copy import deepcopy
 from decimal import Decimal
@@ -33,6 +34,34 @@ def _sanitize_params(params: Dict[str, Any] | None) -> Dict[str, Any]:
     return {
         k: (v.value if hasattr(v, "value") else v) for k, v in (params or {}).items()
     }
+
+
+def _run_cpp(run, params: Any) -> Any:
+    """Call the C++ `run` or `run_batch`, naming the params C++ can't hold if it rejects
+    them.
+
+    Only native C++ strategies read the C++ param map, so this only matters for runs
+    that include one.
+    """
+    try:
+        return run(params)
+    except TypeError as e:
+        maps = params if isinstance(params, list) else [params]
+        bad = sorted(
+            {
+                k
+                for m in maps
+                for k, v in m.items()
+                if v is not None and not isinstance(v, (str, numbers.Number))
+            }
+        )
+        if not bad:
+            raise
+        raise TypeError(
+            f"params {bad} can't be passed to a native C++ strategy, which only "
+            "takes numbers, strings and bools. Set them on the strategy instead, "
+            "or run only Python strategies, which receive their params unchanged."
+        ) from e
 
 
 # Methods the C++ engine reimplements. A subclass that overrides one would run, but
@@ -161,9 +190,15 @@ class CppStrategyRunner:
         table = pa.Table.from_pandas(df_flat, preserve_index=False)
         return table
 
+    def _has_native_strategies(self) -> bool:
+        return any(isinstance(s, yabte_cpp.Strategy) for s in self.strategies)
+
     def run(self, params: Dict[str, Any] | None = None) -> StrategyRunnerResult:
         runner, _keepalive = self._build_runner(params)
-        return self._convert_result(runner.run(_sanitize_params(params)))
+        # Python strategies get `params` unchanged on the Python side, so the C++
+        # map, which only holds scalars, is only needed by native C++ strategies
+        cpp_params = _sanitize_params(params) if self._has_native_strategies() else {}
+        return self._convert_result(_run_cpp(runner.run, cpp_params))
 
     def run_batch(
         self,
@@ -186,13 +221,13 @@ class CppStrategyRunner:
             num_threads = min(len(params_list), os.cpu_count() or 1)
 
         runner, _keepalive = self._build_runner(None, batch_params=params_list)
+        native = self._has_native_strategies()
         cpp_params = [
-            {**_sanitize_params(p), _BATCH_INDEX_KEY: i}
+            {**(_sanitize_params(p) if native else {}), _BATCH_INDEX_KEY: i}
             for i, p in enumerate(params_list)
         ]
-        return [
-            self._convert_result(r) for r in runner.run_batch(cpp_params, num_threads)
-        ]
+        results = _run_cpp(lambda ps: runner.run_batch(ps, num_threads), cpp_params)
+        return [self._convert_result(r) for r in results]
 
     def _build_runner(
         self,

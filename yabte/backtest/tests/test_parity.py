@@ -479,6 +479,81 @@ class TestRecordParity(unittest.TestCase):
         self.assertTrue(Strategy().recorded.empty)
 
 
+class Market:
+    """A non-scalar run param, e.g. a market object a hedging strategy prices with."""
+
+    def __init__(self, spot):
+        self.spot = spot
+
+
+class UsesObjectParams(Strategy):
+    def on_open(self):
+        p = self.params
+        self.record(spot=p.market.spot, rolls=len(p.rolls))
+        self.orders.append(PositionalOrder(asset_name="A", size=p.rolls[0]))
+
+
+class TestNonScalarParams(ParityAssertionsMixin, unittest.TestCase):
+    """Python strategies get their params unchanged on either engine.
+
+    The C++ param map only holds numbers, strings and bools, so only native C++
+    strategies are limited to those.
+    """
+
+    PARAMS = [
+        {"market": Market(100), "rolls": [1, 2]},
+        {"market": Market(101), "rolls": [3]},
+    ]
+
+    @classmethod
+    def setUpClass(cls):
+        idx = pd.bdate_range("2025-01-06", periods=4)
+        cls.data = pd.DataFrame(
+            {("A", f): [100.0, 101.0, 102.0, 103.0] for f in ["High", "Low", "Close"]},
+            index=idx,
+        )
+
+    def runner(self, engine, strategy):
+        return StrategyRunner(
+            data=self.data,
+            assets=[OHLCAsset(name="A")],
+            strategies=[strategy],
+            books=[Book(name="Main", cash="100000")],
+            engine=engine,
+        )
+
+    def test_run(self):
+        skip_or_fail_without_cpp(self)
+        params = self.PARAMS[0]
+        res_py = self.runner("python", UsesObjectParams()).run(params)
+        res_cpp = self.runner("cpp", UsesObjectParams()).run(params)
+        self.assertResultParity(res_py, res_cpp)
+        self.assertEqual(res_cpp.strategies[0].params.rolls, [1, 2])
+        self.assertEqual(res_cpp.strategies[0].recorded.spot.to_list(), [100] * 4)
+
+    def test_run_batch(self):
+        skip_or_fail_without_cpp(self)
+        from yabte.backtest.runner_cpp import CppStrategyRunner
+
+        sr = self.runner("cpp", UsesObjectParams())
+        cpp = CppStrategyRunner(
+            data=sr.data, assets=sr.assets, strategies=sr.strategies, books=sr.books
+        )
+        for res, params in zip(cpp.run_batch(self.PARAMS, num_threads=1), self.PARAMS):
+            with self.subTest(spot=params["market"].spot):
+                expected = self.runner("python", UsesObjectParams()).run(params)
+                self.assertResultParity(expected, res)
+                self.assertIs(res.strategies[0].params.market.__class__, Market)
+
+    def test_native_strategy_names_the_param(self):
+        skip_or_fail_without_cpp(self)
+        from yabte.backtest.runner_cpp import yabte_cpp
+
+        sr = self.runner("cpp", yabte_cpp.SMAXOStrategy("A", 1, 2))
+        with self.assertRaisesRegex(TypeError, r"\['market', 'rolls'\].*native C\+\+"):
+            sr.run(self.PARAMS[0])
+
+
 class TestCppRejectsSubclasses(unittest.TestCase):
     """The C++ engine refuses subclasses whose overrides it would ignore."""
 
