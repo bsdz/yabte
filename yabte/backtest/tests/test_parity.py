@@ -3,6 +3,7 @@ import logging
 import unittest
 from decimal import Decimal
 
+import numpy as np
 import pandas as pd
 
 from yabte.backtest import (
@@ -365,6 +366,56 @@ class TestCloseFirstParity(ParityAssertionsMixin, unittest.TestCase):
                     [Decimal(q) for q in quantities],
                 )
                 self.assertResultParity(res_py, res_cpp, context=str(close_first))
+
+
+class TestFlatPositionParity(ParityAssertionsMixin, unittest.TestCase):
+    """C++ positions are doubles, so sums of rounded trades drift off the asset's
+    quantity grid unless snapped back to it.
+
+    Unsnapped, a position that should be flat keeps a tiny residual, which needs a price
+    once the asset's prices stop.
+    """
+
+    def run_engine(self, engine, order_for_day, days):
+        idx = pd.bdate_range("2024-01-01", periods=days + 2)
+        px = pd.Series(10.0, index=idx)
+        px.iloc[days:] = np.nan  # e.g. an expired option
+        data = pd.DataFrame({("X", f): px for f in ["High", "Low", "Close"]})
+
+        class Trader(Strategy):
+            def on_open(self):
+                i = len(self.data) - 1
+                if i < days:
+                    self.orders.append(order_for_day(i))
+
+        return StrategyRunner(
+            data=data,
+            assets=[OHLCAsset(name="X", quantity_round_dp=6)],
+            strategies=[Trader()],
+            books=[Book(name="Main", cash="0")],
+            engine=engine,
+        ).run()
+
+    def check(self, order_for_day, days):
+        skip_or_fail_without_cpp(self)
+        res_py = self.run_engine("python", order_for_day, days)
+        res_cpp = self.run_engine("cpp", order_for_day, days)
+        self.assertResultParity(res_py, res_cpp)
+        self.assertEqual(res_py.books[0].positions["X"], 0)
+
+    def test_simple_orders_back_to_flat(self):
+        sizes = ["0.1", "0.2", "-0.3"]
+        self.check(lambda i: SimpleOrder(asset_name="X", size=sizes[i]), len(sizes))
+
+    def test_close_first_false_back_to_flat(self):
+        rng = np.random.default_rng(0)
+        targets = [f"{x:.6f}" for x in rng.uniform(-5000, 5000, 39)] + ["0"]
+        self.check(
+            lambda i: PositionalOrder(
+                asset_name="X", size=targets[i], close_first=False
+            ),
+            len(targets),
+        )
 
 
 class Recorder(Strategy):

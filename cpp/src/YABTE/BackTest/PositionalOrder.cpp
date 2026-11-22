@@ -97,7 +97,7 @@ void PositionalOrder::trade_to_target(const Timestamp& ts, double trade_quantity
         }
     }
 
-    this->_book_trades(trades);
+    this->_book_trades(trades, asset_map);
 }
 
 shared_ptr<Order> PositionalOrder::clone() const {

@@ -39,7 +39,8 @@ class Order {
     virtual ~Order() = default;
     virtual shared_ptr<Order> clone() const = 0;
 
-    void _book_trades(const vector<shared_ptr<Trade>> trades);
+    void _book_trades(const vector<shared_ptr<Trade>> trades,
+                      const AssetMap &asset_map);
 
     virtual void post_complete(const vector<shared_ptr<Trade>> trades);
     

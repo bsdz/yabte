@@ -16,11 +16,18 @@ Order::Order(const optional<string>& book_name, const optional<string>& label,
       priority_(priority),
       key_(key) {}
 
-void Order::_book_trades(const vector<shared_ptr<Trade>> trades) {
+void Order::_book_trades(const vector<shared_ptr<Trade>> trades,
+                         const AssetMap& asset_map) {
     // test then book trades, do any post complete tasks
     if (this->book_->test_trades(trades)) {
         TransactionVector transactions(trades.begin(), trades.end());
         this->book_->add_transactions(transactions);
+        // Python sums Decimal quantities exactly; doubles drift off the asset's
+        // quantity grid, so snap back to it (a flat position must be exactly 0)
+        for (const auto& trade : trades) {
+            auto& position = this->book_->positions_[trade->asset_name_];
+            position = asset_map.at(trade->asset_name_)->round_quantity(position);
+        }
         this->status_ = OrderStatus::COMPLETE;
         this->post_complete(trades);
     } else {
@@ -111,7 +118,7 @@ void SimpleOrder::apply(const Timestamp& ts, const DayData& day_data,
     vector<shared_ptr<Trade>> trades;
     trades.push_back(make_shared<Trade>(ts, trade_quantity, trade_price,
                                         this->asset_name_, this->label_));
-    this->_book_trades(trades);
+    this->_book_trades(trades, asset_map);
 }
 
 void SimpleOrder::apply(const Timestamp &ts, const std::shared_ptr<arrow::Table>& data, int64_t idx, const AssetMap &asset_map) {
@@ -132,7 +139,7 @@ void SimpleOrder::apply(const Timestamp &ts, const std::shared_ptr<arrow::Table>
     vector<shared_ptr<Trade>> trades;
     trades.push_back(make_shared<Trade>(ts, trade_quantity, trade_price,
                                         this->asset_name_, this->label_));
-    this->_book_trades(trades);
+    this->_book_trades(trades, asset_map);
 }
 
 
