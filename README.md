@@ -143,7 +143,8 @@ Jupyter notebook examples can be found under the [notebooks folder](https://gith
 - **Intraday_Bars**: five-minute bars, an opening range breakout, and intraday equity from daily book history.
 - **Simulation**: Wiener, GBM and Heston simulations, and backtesting on simulated data.
 - **Portfolio_Optimization**: comparing portfolio optimisation schemes.
-- **Delta_Hedging**: delta hedging an option under constant and stochastic volatility.
+- **Delta_Hedging**: delta hedging an option under constant and stochastic volatility,
+  priced with the `black_scholes` helper.
 - **Pyfolio_Example**: pyfolio tear sheets from backtest results.
 
 ## Agent skill

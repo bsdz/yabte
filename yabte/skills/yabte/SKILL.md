@@ -290,6 +290,8 @@ final = [r.book_history.Main.total.iloc[-1] for r in sweep]
   - `minimum_variance.minimum_variance(Sigma, mu, r)`, for a target return `r`.
 
   Each returns portfolio weights that sum to 1.
+- `yabte.utilities.black_scholes.black_scholes(S, K, tau, sigma, r=0, call=True)`:
+  European option `price`, `delta`, `gamma` and `vega`, vectorised over numpy arrays.
 - `yabte.utilities.simulation`:
   - `geometric_brownian_motion.gbm_simulate_paths`;
   - `heston.heston_simulate_paths`;

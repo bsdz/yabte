@@ -261,7 +261,8 @@ tests in `cpp/src_test/`.
 Supporting, mostly-independent modules: `pandas_extension.py` (DataFrame accessors),
 `portopt/` (portfolio optimization: hierarchical risk parity, inverse volatility,
 minimum variance), `simulation/` (GBM, Heston, Wiener process generators for synthetic
-test data), `strategy_helpers.py` (e.g. `crossover`), `pyfolio.py` and `plot/{matplotlib,
+test data), `strategy_helpers.py` (e.g. `crossover`), `black_scholes.py`
+(vectorised European price, delta, gamma, vega), `pyfolio.py` and `plot/{matplotlib,
 plotly}/` (result visualization — third-party stats like Sharpe/drawdown are expected to
 come from `empyrical`/`pyfolio`, not this library).
 
