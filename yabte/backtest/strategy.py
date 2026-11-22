@@ -1,7 +1,7 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import chain, product
-from typing import Dict
+from typing import Any, Dict
 
 import pandas as pd
 
@@ -35,6 +35,9 @@ class Strategy:
     """Dictionary of assets."""
 
     _ts: pd.Timestamp | None = None
+    _recorded: Dict[pd.Timestamp, Dict[str, Any]] = field(
+        default_factory=dict, repr=False
+    )
     _data_lock: bool = True
     _mask_open: bool = False
 
@@ -92,6 +95,29 @@ class Strategy:
     def init(self):
         """Initialise internal variables & enhance data for strategy."""
         pass
+
+    def record(self, **values):
+        """Store `values` against the current timestamp, `self.ts`.
+
+        Call it from `on_open` or `on_close` to keep diagnostics such as signals or
+        hedge ratios. Values recorded at the same timestamp, including from both hooks,
+        share a row of :py:attr:`recorded`; a later value for the same name replaces the
+        earlier one.
+        """
+        if self.ts is None:
+            raise RuntimeError(
+                "record() needs a timestamp; call it from on_open/on_close"
+            )
+        self._recorded.setdefault(self.ts, {}).update(values)
+
+    @property
+    def recorded(self) -> pd.DataFrame:
+        """Values passed to :py:meth:`record`, one row per timestamp and one column per
+        name.
+
+        Read it from the result's copy, ``srr.strategies[i].recorded``.
+        """
+        return pd.DataFrame.from_dict(self._recorded, orient="index")
 
     def on_open(self):
         """Executed on open every day.

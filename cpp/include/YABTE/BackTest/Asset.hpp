@@ -66,12 +66,18 @@ class Asset {
 using AssetMap = map<string, shared_ptr<Asset>>;
 using AssetVector = vector<shared_ptr<Asset>>;
 
+// The price OHLCAsset orders fill at; see the Python OHLCAsset.fill_price.
+enum class FillPrice { MIDPOINT, OPEN, CLOSE };
+
 class OHLCAsset : public Asset {
    public:
     OHLCAsset(const string &name, const string &denom,
               const optional<int> &price_round_dp = 2,
               const optional<int> &quantity_round_dp = 2,
-              const optional<string> &data_label = nullopt);
+              const optional<string> &data_label = nullopt,
+              FillPrice fill_price = FillPrice::MIDPOINT);
+
+    FillPrice fill_price_;
 
     shared_ptr<Asset> clone() const override;
 

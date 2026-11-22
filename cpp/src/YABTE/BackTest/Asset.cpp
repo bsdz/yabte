@@ -146,8 +146,10 @@ double Asset::end_of_day_price(const std::shared_ptr<arrow::Table>& data,
 OHLCAsset::OHLCAsset(const string &name, const string &denom,
                      const optional<int> &price_round_dp,
                      const optional<int> &quantity_round_dp,
-                     const optional<string> &data_label)
-    : Asset(name, denom, price_round_dp, quantity_round_dp, data_label) {}
+                     const optional<string> &data_label,
+                     FillPrice fill_price)
+    : Asset(name, denom, price_round_dp, quantity_round_dp, data_label),
+      fill_price_(fill_price) {}
 
 shared_ptr<Asset> OHLCAsset::clone() const {
     return make_shared<OHLCAsset>(*this);
@@ -155,6 +157,20 @@ shared_ptr<Asset> OHLCAsset::clone() const {
 
 double OHLCAsset::intraday_traded_price(const DayData &asset_day_data,
                                         const optional<double> size) const {
+    if (this->fill_price_ != FillPrice::MIDPOINT) {
+        auto field = this->fill_price_ == FillPrice::OPEN ? "Open" : "Close";
+        auto col = asset_day_data.GetColumnByName(field);
+        if (col) {
+            auto st = col->GetScalar(0);
+            if (st.ok() && st.ValueOrDie() && st.ValueOrDie()->is_valid) {
+                auto v = dynamic_pointer_cast<arrow::DoubleScalar>(st.ValueOrDie())
+                             ->value;
+                return round_dp(v, this->price_round_dp_);
+            }
+        }
+        return std::numeric_limits<double>::quiet_NaN();  // engine raises if used
+    }
+
     auto s_low = asset_day_data.GetColumnByName("Low");
     if (!s_low) {
         std::cerr << "ERROR: 'Low' column missing for " << this->name_
@@ -223,8 +239,11 @@ vector<tuple<string, AssetDataFieldInfo>> OHLCAsset::data_fields() const {
     vector<tuple<string, AssetDataFieldInfo>> v;
     v.emplace_back("High", AssetDataFieldInfo::AVAILABLE_AT_CLOSE);
     v.emplace_back("Low", AssetDataFieldInfo::AVAILABLE_AT_CLOSE);
-    v.emplace_back("Open", (AssetDataFieldInfo::AVAILABLE_AT_CLOSE |
-                            AssetDataFieldInfo::AVAILABLE_AT_OPEN));
+    auto open_info = AssetDataFieldInfo::AVAILABLE_AT_CLOSE |
+                     AssetDataFieldInfo::AVAILABLE_AT_OPEN;
+    if (this->fill_price_ == FillPrice::OPEN)
+        open_info = open_info | AssetDataFieldInfo::REQUIRED;
+    v.emplace_back("Open", open_info);
     v.emplace_back("Close", (AssetDataFieldInfo::AVAILABLE_AT_CLOSE |
                              AssetDataFieldInfo::REQUIRED));
     v.emplace_back("Volume", AssetDataFieldInfo::AVAILABLE_AT_CLOSE);
@@ -273,8 +292,17 @@ double OHLCAsset::intraday_traded_price(const std::shared_ptr<arrow::Table>& dat
         idx_low_ = find_col("Low");
         idx_high_ = find_col("High");
         idx_close_ = find_col("Close");
-        // idx_open_ = find_col("Open"); 
+        idx_open_ = find_col("Open");
         indices_initialized_ = true;
+    }
+
+    if (this->fill_price_ != FillPrice::MIDPOINT) {
+        auto i = this->fill_price_ == FillPrice::OPEN ? idx_open_ : idx_close_;
+        if (i != -1) {
+            auto v = GetValue(data->column(i), idx);
+            if (v.has_value()) return round_dp(v.value(), this->price_round_dp_);
+        }
+        return std::numeric_limits<double>::quiet_NaN();  // engine raises if used
     }
 
     std::optional<double> low, high;
@@ -310,6 +338,7 @@ double OHLCAsset::end_of_day_price(const std::shared_ptr<arrow::Table>& data,
         idx_low_ = find_col("Low");
         idx_high_ = find_col("High");
         idx_close_ = find_col("Close");
+        idx_open_ = find_col("Open");
         indices_initialized_ = true;
     }
 

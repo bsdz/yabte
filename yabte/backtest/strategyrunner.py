@@ -306,8 +306,9 @@ class StrategyRunner:
     - ``"python"``, the reference implementation, supports everything.
     - ``"cpp"`` runs the event loop in the compiled C++ extension and gives the same
       results. Mandates raise `ValueError` and basket orders raise
-      `NotImplementedError`. Custom asset and order subclasses are converted to
-      their base classes, so overridden hooks such as `pre_execute_check` don't run.
+      `NotImplementedError`, as do asset and order subclasses that override a
+      pricing or execution hook (such as `intraday_traded_price` or
+      `pre_execute_check`), since the C++ engine would ignore it.
     - ``"auto"``, the default, currently means ``"python"``.
     """
 

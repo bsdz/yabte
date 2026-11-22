@@ -78,7 +78,9 @@ Inside these, use:
 - `self.data`: the data up to and including `self.ts`, the current timestamp;
 - `self.params`: a `pd.Series` of the run's parameters;
 - `self.orders`: the queue to append orders to;
-- `self.books` and `self.assets`: dicts by name.
+- `self.books` and `self.assets`: dicts by name;
+- `self.record(**values)`: stores diagnostics against `self.ts`. Read them after the
+  run as a DataFrame, `srr.strategies[0].recorded`, one row per timestamp.
 
 ```python
 class SMACross(Strategy):
@@ -101,6 +103,7 @@ class SMACross(Strategy):
             row = self.data[name].iloc[-1]
             if np.isnan(row.Slow):
                 continue  # still warming up
+            self.record(**{f"{name}_spread": row.Fast - row.Slow})
             target = 100 if row.Fast > row.Slow else 0
             # trades to the target position; repeating a target does nothing
             self.orders.append(PositionalOrder(asset_name=name, size=target, key=name))
@@ -120,6 +123,7 @@ srr = runner.run({"fast": 10, "slow": 30})
 srr.book_history.Main.total  # one row per date; columns (book, field): cash, mtm, total
 srr.transaction_history  # ts, total, desc, quantity, price, asset_name, order_label, book
 statuses = [o.status.name for o in srr.orders_processed]
+spreads = srr.strategies[0].recorded  # what SMACross passed to self.record
 ```
 
 `run()` copies the books, assets and strategies, so the same runner can run again with
@@ -137,17 +141,26 @@ All orders take `book` (a book name; omit it for the first book), `label`, `prio
   - `QUANTITY` (the default): units.
   - `NOTIONAL`: money.
   - `BOOK_PERCENT`: a percentage of the book's **cash**, not its total value.
-- `PositionalOrder(...)` takes the same arguments, but `size` is the target position. It
-  closes the current position and opens the new one. `check_type` decides whether it
-  trades: `PositionalOrderCheckType.POS_TQ_DIFFER` (the default) when the position
-  differs from the target, or `ZERO_POS` only when the position is zero.
+- `PositionalOrder(...)` takes the same arguments, but `size` is the target position.
+  `check_type` decides whether it trades: `PositionalOrderCheckType.POS_TQ_DIFFER` (the
+  default) when the position differs from the target, or `ZERO_POS` only when the
+  position is zero. By default it closes the current position and opens the new one,
+  booking two trades. With `close_first=False` it books one trade for the difference,
+  which suits daily rebalancing such as a delta hedge.
 - `BasketOrder(asset_names, weights, size, size_type)` and `PositionalBasketOrder`
   trade several assets at once. With `BOOK_PERCENT`, `weights` are percentages of cash
   plus positions at the traded prices, and `size` is ignored. They are Python engine
   only.
 
-Orders fill at the asset's `intraday_traded_price`, which for `OHLCAsset` is the mean of
-`High` and `Low`, or `Close` if either is missing. Final statuses are `COMPLETE`,
+Orders fill at the asset's `intraday_traded_price`. For `OHLCAsset` that depends on its
+`fill_price`:
+
+- `"midpoint"` (the default): the mean of `High` and `Low`, or `Close` if either is
+  missing. Neither is known at the open, so orders placed in `on_open` fill at prices
+  from later in the row.
+- `"open"`: `Open`, which is then a required field. Use it for orders placed in
+  `on_open`.
+- `"close"`: `Close`. Final statuses are `COMPLETE`,
 `CANCELLED`, `REPLACED` and `MANDATE_FAILED`. An order still `OPEN` at the end of the
 run is in `srr.orders_unprocessed`.
 
@@ -231,11 +244,15 @@ The C++ engine's limits:
 
 - Mandates raise `ValueError`.
 - Basket orders raise `NotImplementedError`.
-- Custom `Asset` and order subclasses are converted to `OHLCAsset`, `SimpleOrder` or
-  `PositionalOrder` **without an error**, so `pre_execute_check`, `post_complete` and
-  custom pricing don't run. Use the Python engine for those.
+- Asset subclasses that override `intraday_traded_price`, `end_of_day_price`,
+  `data_fields`, `check_and_fix_data` or `round_quantity`, and order subclasses that override
+  `pre_execute_check`, `post_complete` or `apply`, raise `NotImplementedError`. Use the
+  Python engine for those, or `fill_price` for a different fill.
 - A timezone-aware index works. Days are its local dates, and a local time that occurs
   twice (clocks going back) raises `ValueError`.
+- Python strategies get their params unchanged, objects and lists included. Native C++
+  strategies only take numbers, strings and bools, and other values raise `TypeError`
+  naming the keys.
 
 ## Parameter sweeps
 
@@ -276,6 +293,8 @@ final = [r.book_history.Main.total.iloc[-1] for r in sweep]
   - `minimum_variance.minimum_variance(Sigma, mu, r)`, for a target return `r`.
 
   Each returns portfolio weights that sum to 1.
+- `yabte.utilities.black_scholes.black_scholes(S, K, tau, sigma, r=0, call=True)`:
+  European option `price`, `delta`, `gamma` and `vega`, vectorised over numpy arrays.
 - `yabte.utilities.simulation`:
   - `geometric_brownian_motion.gbm_simulate_paths`;
   - `heston.heston_simulate_paths`;

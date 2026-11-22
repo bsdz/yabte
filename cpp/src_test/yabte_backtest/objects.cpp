@@ -1,10 +1,14 @@
+#include <arrow/api.h>
 #include <gtest/gtest.h>
+
+#include <cmath>
 
 #include "YABTE/BackTest/Asset.hpp"
 #include "YABTE/BackTest/Book.hpp"
 #include "YABTE/BackTest/Transaction.hpp"
 
-using YABTE::BackTest::Book, YABTE::BackTest::CashTransaction, YABTE::BackTest::OHLCAsset,
+using YABTE::BackTest::Book, YABTE::BackTest::CashTransaction, YABTE::BackTest::FillPrice,
+    YABTE::BackTest::OHLCAsset,
     YABTE::BackTest::Trade, YABTE::BackTest::TransactionVector;
 
 TEST(TransactionTest, BasicAssertions) {
@@ -34,4 +38,47 @@ TEST(AssetTest, BasicAssertions) {
     EXPECT_EQ(a.quantity_round_dp_, 2);
     EXPECT_EQ(a.data_label_, a.name_);
     EXPECT_NEAR(a.round_quantity(1.2345), 1.23, 0.0001);
+}
+
+namespace {
+// one row per element; NaN becomes a null, as from pandas
+std::shared_ptr<arrow::Table> ohlc_table(std::vector<double> open,
+                                         std::vector<double> high,
+                                         std::vector<double> low,
+                                         std::vector<double> close) {
+    arrow::FieldVector fields;
+    arrow::ArrayVector arrays;
+    auto add = [&](const std::string &name, const std::vector<double> &values) {
+        arrow::DoubleBuilder b;
+        for (auto v : values) {
+            EXPECT_TRUE((std::isnan(v) ? b.AppendNull() : b.Append(v)).ok());
+        }
+        fields.push_back(arrow::field(name, arrow::float64()));
+        arrays.push_back(b.Finish().ValueOrDie());
+    };
+    add("foo.Open", open);
+    add("foo.High", high);
+    add("foo.Low", low);
+    add("foo.Close", close);
+    return arrow::Table::Make(arrow::schema(fields), arrays);
+}
+}  // namespace
+
+TEST(AssetTest, FillPrice) {
+    auto nan = std::nan("");
+    // row 0 has every price; row 1 has no High or Open
+    auto t = ohlc_table({10., nan}, {14., nan}, {11., 11.}, {13., 13.});
+    auto price = [&](FillPrice fp, int64_t row) {
+        return OHLCAsset("foo", "USD", 2, 2, "foo", fp).intraday_traded_price(t, row);
+    };
+    EXPECT_NEAR(price(FillPrice::MIDPOINT, 0), 12.5, 1e-9);
+    EXPECT_NEAR(price(FillPrice::MIDPOINT, 1), 13., 1e-9);  // falls back to Close
+    EXPECT_NEAR(price(FillPrice::OPEN, 0), 10., 1e-9);
+    EXPECT_TRUE(std::isnan(price(FillPrice::OPEN, 1)));  // no fallback
+    EXPECT_NEAR(price(FillPrice::CLOSE, 0), 13., 1e-9);
+
+    // the setting survives the clone each run makes
+    auto a = OHLCAsset("foo", "USD", 2, 2, "foo", FillPrice::OPEN);
+    auto c = std::dynamic_pointer_cast<OHLCAsset>(a.clone());
+    EXPECT_EQ(c->fill_price_, FillPrice::OPEN);
 }

@@ -8,6 +8,12 @@ Strategy helpers
    .. automodule:: yabte.utilities.strategy_helpers
       :members:
 
+Black-Scholes
+-------------
+
+   .. automodule:: yabte.utilities.black_scholes
+      :members:
+
 Pandas accessors
 ----------------
 

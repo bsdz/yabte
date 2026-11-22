@@ -464,13 +464,21 @@ PYBIND11_MODULE(_yabte_backtest_lib, m) {
     py::class_<Asset, PyAsset, shared_ptr<Asset>>(m, "Asset")
         .def("round_quantity", &Asset::round_quantity);
 
+    py::enum_<FillPrice>(m, "FillPrice")
+        .value("MIDPOINT", FillPrice::MIDPOINT)
+        .value("OPEN", FillPrice::OPEN)
+        .value("CLOSE", FillPrice::CLOSE);
+
     py::class_<OHLCAsset, Asset, shared_ptr<OHLCAsset>>(m, "OHLCAsset")
         .def(py::init<const string &, const string &, const optional<int> &,
-                      const optional<int> &, const optional<string> &>(),
+                      const optional<int> &, const optional<string> &,
+                      FillPrice>(),
              py::arg("name"), py::arg("denom") = "USD",
              py::arg("price_round_dp") = 2, py::arg("quantity_round_dp") = 2,
-             py::arg("data_label") = nullopt)
-        .def(py::init<const string &, const string &>());
+             py::arg("data_label") = nullopt,
+             py::arg("fill_price") = FillPrice::MIDPOINT)
+        .def(py::init<const string &, const string &>())
+        .def_readonly("fill_price", &OHLCAsset::fill_price_);
 
     py::enum_<AssetDataFieldInfo>(m, "AssetDataFieldInfo")
         .value("AVAILABLE_AT_CLOSE", AssetDataFieldInfo::AVAILABLE_AT_CLOSE)
@@ -513,12 +521,14 @@ PYBIND11_MODULE(_yabte_backtest_lib, m) {
         .def(py::init<const string &, const double &, const OrderSizeType &,
                       const PositionalOrderCheckType &,
                       const optional<string> &, const optional<string> &,
-                      const int, const optional<string> &>(),
+                      const int, const optional<string> &, bool>(),
              py::arg("asset_name"), py::arg("size"),
              py::arg("size_type") = OrderSizeType::QUANTITY,
              py::arg("check_type") = PositionalOrderCheckType::POS_TQ_DIFFER,
              py::arg("book_name") = nullopt, py::arg("label") = nullopt,
-             py::arg("priority") = 0, py::arg("key") = nullopt);
+             py::arg("priority") = 0, py::arg("key") = nullopt,
+             py::arg("close_first") = true)
+        .def_readonly("close_first", &PositionalOrder::close_first_);
 
     py::bind_deque<OrderDeque>(m, "OrderDeque");
 

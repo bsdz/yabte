@@ -7,11 +7,13 @@ Features
 * Event driven, ie `on_open`, `on_close`, etc. 
 * Daily or intraday bars. Book end-of-day tasks run once per date, after its last bar.
 * Multiple assets.
-* OHLC Asset. Extendable (e.g support additional fields, e.g. Volatility, or entirely different fields, e.g. Barrels per day).
+* OHLC Asset, filling orders at the High/Low midpoint, the Open or the Close. Extendable (e.g support additional fields, e.g. Volatility, or entirely different fields, e.g. Barrels per day).
 * Multiple books, each with optional interest on cash.
-* Positional and Basket orders. Extendible (e.g. can support stop loss).
+* Positional and Basket orders. Positional orders can close and reopen, or trade only
+  the difference to the target. Extendible (e.g. can support stop loss).
 * Batch runs (for optimization).
 * Captures book history including transactions & daily cash, MtM and total values.
+* `Strategy.record` keeps per-timestamp diagnostics as a DataFrame.
 * Missing prices raise `MissingPriceError` when a run needs them, and `find_missing_data` lists gaps before a run.
 
 The module provides basic statistics like book cash, mtm and total value. Currently, everything else needs to be deferred to a 3rd party module like `empyrical`.
@@ -26,8 +28,10 @@ natively in C++ also run in parallel in `run_batch`.
 The C++ backend has some limits:
 
 * Mandates raise `ValueError` and basket orders raise `NotImplementedError`.
-* Custom `Asset` and order subclasses are converted to their base classes without an
-  error, so overridden hooks such as `pre_execute_check` don't run.
+* Asset and order subclasses that override a pricing or execution hook, such as
+  `intraday_traded_price` or `pre_execute_check`, raise `NotImplementedError`, because
+  the C++ engine would ignore the override. For a different fill price, use
+  `OHLCAsset(fill_price="open")` or `"close"`, which both engines support.
 
 ## Core dependencies
 
@@ -139,7 +143,8 @@ Jupyter notebook examples can be found under the [notebooks folder](https://gith
 - **Intraday_Bars**: five-minute bars, an opening range breakout, and intraday equity from daily book history.
 - **Simulation**: Wiener, GBM and Heston simulations, and backtesting on simulated data.
 - **Portfolio_Optimization**: comparing portfolio optimisation schemes.
-- **Delta_Hedging**: delta hedging an option under constant and stochastic volatility.
+- **Delta_Hedging**: delta hedging an option under constant and stochastic volatility,
+  priced with the `black_scholes` helper.
 - **Pyfolio_Example**: pyfolio tear sheets from backtest results.
 
 ## Agent skill
