@@ -228,10 +228,13 @@ The engine is built around five cooperating dataclasses, all re-exported from
   compiled `_yabte_backtest_lib` pybind11 extension (built from `cpp/`) and runs the
   event loop in C++. **Mandates are not supported in this engine** (raises `ValueError`
   if a runner or any book has them), and **basket orders**
-  (`BasketOrder`/`PositionalBasketOrder`) raise `NotImplementedError`. Custom `Asset`
-  subclasses are converted to `OHLCAsset`, and custom order subclasses to their base
-  `SimpleOrder`/`PositionalOrder` (overridden hooks such as `pre_execute_check` don't
-  run), without an error. The C++ engine has no timezones: for a tz-aware index,
+  (`BasketOrder`/`PositionalBasketOrder`) raise `NotImplementedError`. So do asset
+  and order subclasses that override a hook the engine reimplements (`_ASSET_HOOKS` /
+  `_ORDER_HOOKS` in `runner_cpp.py`, checked by `_check_cpp_assets` at construction and
+  `_check_cpp_order` per order), since C++ would silently use the base behaviour;
+  subclasses that override nothing run. `OHLCAsset.fill_price` (`midpoint`/`open`/
+  `close`) is implemented in both engines, so it is the supported way to change fills
+  under C++. The C++ engine has no timezones: for a tz-aware index,
   `CppStrategyRunner` passes local wall-clock times (so end-of-day grouping matches
   Python's local dates) and maps output timestamps back, raising `ValueError` if a
   local time repeats (clocks going back). The extension is optional at import time; `runner_cpp`

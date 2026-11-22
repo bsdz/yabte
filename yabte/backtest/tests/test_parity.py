@@ -7,6 +7,7 @@ import pandas as pd
 
 from yabte.backtest import (
     Book,
+    MissingPriceError,
     OHLCAsset,
     OrderSizeType,
     PositionalOrder,
@@ -254,6 +255,153 @@ class TestResultParity(ParityAssertionsMixin, unittest.TestCase):
             with self.subTest(engine=engine):
                 with self.assertRaisesRegex(ValueError, "unknown book Missing"):
                     self.runner(engine, strategy).run()
+
+
+class TestFillPriceParity(ParityAssertionsMixin, unittest.TestCase):
+    """`OHLCAsset.fill_price` picks the same fill on both engines."""
+
+    def setUp(self):
+        idx = pd.bdate_range("2025-01-06", periods=6)
+        self.data = pd.DataFrame(
+            {
+                ("A", "Open"): [100.0, 102.0, 101.0, 105.0, 104.0, 106.0],
+                ("A", "High"): [103.0, 104.0, 106.0, 107.0, 108.0, 109.0],
+                ("A", "Low"): [99.0, 100.0, 100.5, 103.0, 102.0, 104.0],
+                ("A", "Close"): [101.0, 103.0, 104.0, 106.0, 105.0, 107.0],
+            },
+            index=idx,
+        )
+
+        class Trader(Strategy):
+            def on_open(self):
+                if len(self.data) in (1, 4):
+                    self.orders.append(SimpleOrder(asset_name="A", size=10))
+
+            def on_close(self):
+                if len(self.data) == 2:
+                    self.orders.append(SimpleOrder(asset_name="A", size=-5))
+
+        self.Trader = Trader
+
+    def run_engine(self, engine, fill_price, data=None):
+        return StrategyRunner(
+            data=self.data if data is None else data,
+            assets=[OHLCAsset(name="A", fill_price=fill_price)],
+            strategies=[self.Trader()],
+            books=[Book(name="Main", cash="100000")],
+            engine=engine,
+        ).run()
+
+    def test_fill_prices(self):
+        skip_or_fail_without_cpp(self)
+        # orders fill on rows 0, 2 (placed at row 1's close) and 3
+        expected = {
+            "midpoint": [Decimal("101"), Decimal("103.25"), Decimal("105")],
+            "open": [Decimal("100"), Decimal("101"), Decimal("105")],
+            "close": [Decimal("101"), Decimal("104"), Decimal("106")],
+        }
+        for fill_price, prices in expected.items():
+            with self.subTest(fill_price=fill_price):
+                res_py = self.run_engine("python", fill_price)
+                res_cpp = self.run_engine("cpp", fill_price)
+                self.assertEqual(res_py.transaction_history.price.to_list(), prices)
+                self.assertResultParity(res_py, res_cpp, context=fill_price)
+
+    def test_open_fill_needs_an_open_price(self):
+        skip_or_fail_without_cpp(self)
+        data = self.data.copy()
+        data.loc[data.index[3], ("A", "Open")] = float("nan")
+        for engine in ["python", "cpp"]:
+            with self.subTest(engine=engine):
+                with self.assertRaisesRegex(MissingPriceError, "No traded price"):
+                    self.run_engine(engine, "open", data)
+
+
+class TestCppRejectsSubclasses(unittest.TestCase):
+    """The C++ engine refuses subclasses whose overrides it would ignore."""
+
+    def setUp(self):
+        idx = pd.bdate_range("2025-01-06", periods=3)
+        self.data = pd.DataFrame(
+            {("A", f): [100.0, 101.0, 102.0] for f in ["Open", "High", "Low", "Close"]},
+            index=idx,
+        )
+
+    def run_cpp(self, asset=None, order_cls=SimpleOrder):
+        class Trader(Strategy):
+            def on_open(self):
+                self.orders.append(order_cls(asset_name="A", size=1))
+
+        return StrategyRunner(
+            data=self.data,
+            assets=[asset or OHLCAsset(name="A")],
+            strategies=[Trader()],
+            engine="cpp",
+        ).run()
+
+    def test_asset_overriding_a_price_hook(self):
+        skip_or_fail_without_cpp(self)
+
+        class TradeAtOpen(OHLCAsset):
+            def intraday_traded_price(self, asset_day_data, size=None):
+                return Decimal(asset_day_data.Open)
+
+        class WholeLots(OHLCAsset):
+            def round_quantity(self, quantity):
+                return Decimal(int(quantity))
+
+        with self.assertRaisesRegex(NotImplementedError, "intraday_traded_price"):
+            self.run_cpp(TradeAtOpen(name="A"))
+        with self.assertRaisesRegex(NotImplementedError, "round_quantity"):
+            self.run_cpp(WholeLots(name="A"))
+
+    def test_hook_set_on_an_instance(self):
+        skip_or_fail_without_cpp(self)
+        asset = OHLCAsset(name="A")
+        asset.end_of_day_price = lambda asset_day_data: Decimal(1)  # type: ignore[method-assign]
+        with self.assertRaisesRegex(NotImplementedError, "end_of_day_price"):
+            self.run_cpp(asset)
+
+        class Trader(Strategy):
+            def on_open(self):
+                order = SimpleOrder(asset_name="A", size=1)
+                order.pre_execute_check = lambda ts, tp: None  # type: ignore[method-assign]
+                self.orders.append(order)
+
+        with self.assertRaisesRegex(NotImplementedError, "pre_execute_check"):
+            StrategyRunner(
+                data=self.data,
+                assets=[OHLCAsset(name="A")],
+                strategies=[Trader()],
+                engine="cpp",
+            ).run()
+
+    def test_asset_subclass_without_overrides_runs(self):
+        skip_or_fail_without_cpp(self)
+
+        class Tagged(OHLCAsset):
+            pass
+
+        self.assertEqual(len(self.run_cpp(Tagged(name="A")).transaction_history), 3)
+
+    def test_order_overriding_a_hook(self):
+        skip_or_fail_without_cpp(self)
+
+        class LimitOrder(SimpleOrder):
+            def pre_execute_check(self, ts, trade_price):
+                return None
+
+        class Target(PositionalOrder):
+            def post_complete(self, trades):
+                pass
+
+        for order_cls, hook in [
+            (LimitOrder, "pre_execute_check"),
+            (Target, "post_complete"),
+        ]:
+            with self.subTest(order=order_cls.__name__):
+                with self.assertRaisesRegex(NotImplementedError, hook):
+                    self.run_cpp(order_cls=order_cls)
 
 
 if __name__ == "__main__":

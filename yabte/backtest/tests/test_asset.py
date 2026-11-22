@@ -1,7 +1,9 @@
 import unittest
 from decimal import Decimal
 
-from yabte.backtest import OHLCAsset
+import pandas as pd
+
+from yabte.backtest import OHLCAsset, find_missing_data
 
 # Check if C++ engine is available
 from yabte.backtest.runner_cpp import yabte_cpp as yabte_cpp_backtest
@@ -10,6 +12,29 @@ HAS_CPP = yabte_cpp_backtest is not None
 
 
 class AssetTestCase(unittest.TestCase):
+    def test_fill_price(self):
+        row = pd.Series({"Open": 10.0, "High": 14.0, "Low": 11.0, "Close": 13.0})
+        for fill_price, expected in [
+            ("midpoint", "12.5"),
+            ("open", "10"),
+            ("close", "13"),
+        ]:
+            with self.subTest(fill_price=fill_price):
+                asset = OHLCAsset(name="A", fill_price=fill_price)
+                self.assertEqual(asset.intraday_traded_price(row), Decimal(expected))
+        with self.assertRaisesRegex(ValueError, "fill_price must be one of"):
+            OHLCAsset(name="A", fill_price="vwap")  # type: ignore[arg-type]
+
+    def test_open_fill_requires_open(self):
+        data = pd.DataFrame(
+            {("A", "Close"): [1.0, 2.0]}, index=pd.bdate_range("2025-01-06", periods=2)
+        )
+        self.assertTrue(find_missing_data(data, [OHLCAsset(name="A")]).empty)
+        missing = find_missing_data(data, [OHLCAsset(name="A", fill_price="open")])
+        self.assertEqual(set(missing.field), {"Open"})
+        with self.assertRaisesRegex(ValueError, "missing {'Open'}"):
+            OHLCAsset(name="A", fill_price="open").check_and_fix_data(data["A"])
+
     def test_round_quantity(self):
         # 1. Test Python Asset
         py_asset = OHLCAsset(name="TEST", quantity_round_dp=2)

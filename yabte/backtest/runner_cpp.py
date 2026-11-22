@@ -1,7 +1,7 @@
 import os
 from copy import deepcopy
 from decimal import Decimal
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, cast
 
 import numpy as np
 import pandas as pd
@@ -33,6 +33,57 @@ def _sanitize_params(params: Dict[str, Any] | None) -> Dict[str, Any]:
     return {
         k: (v.value if hasattr(v, "value") else v) for k, v in (params or {}).items()
     }
+
+
+# Methods the C++ engine reimplements. A subclass that overrides one would run, but
+# with the base class's behaviour, so the C++ engine refuses it.
+_ASSET_HOOKS = (
+    "intraday_traded_price",
+    "end_of_day_price",
+    "data_fields",
+    "check_and_fix_data",
+    "round_quantity",
+)
+_ORDER_HOOKS = (
+    "pre_execute_check",
+    "post_complete",
+    "apply",
+    "_calc_quantity_price",
+    "_book_trades",
+)
+
+
+def _overridden(obj: object, base: type, hooks: Iterable[str]) -> List[str]:
+    """The `hooks` that `obj`'s class, or `obj` itself, overrides relative to `base`."""
+    own = vars(obj) if hasattr(obj, "__dict__") else {}
+    return [
+        h for h in hooks if h in own or getattr(type(obj), h) is not getattr(base, h)
+    ]
+
+
+def _check_cpp_assets(assets: Iterable[Asset]) -> None:
+    """Raise `NotImplementedError` for assets the C++ engine would price wrongly."""
+    for asset in assets:
+        if not isinstance(asset, PyOHLCAsset):
+            raise NotImplementedError(
+                f"{type(asset).__name__} ({asset.name}) is not an OHLCAsset; the C++ "
+                'engine only prices OHLCAsset. Use engine="python".'
+            )
+        if hooks := _overridden(asset, PyOHLCAsset, _ASSET_HOOKS):
+            raise NotImplementedError(
+                f"{type(asset).__name__} ({asset.name}) overrides {', '.join(hooks)}, "
+                'which the C++ engine would ignore. Use engine="python", or for a '
+                "different fill price, OHLCAsset(fill_price=...)."
+            )
+
+
+def _check_cpp_order(order: object, base: type) -> None:
+    """Raise `NotImplementedError` for an order the C++ engine would run wrongly."""
+    if hooks := _overridden(order, base, _ORDER_HOOKS):
+        raise NotImplementedError(
+            f"{type(order).__name__} overrides {', '.join(hooks)}, which the C++ "
+            'engine would ignore. Use engine="python".'
+        )
 
 
 class CppStrategyRunner:
@@ -76,6 +127,7 @@ class CppStrategyRunner:
 
         if self.mandates or any(book.mandates for book in self.books):
             raise ValueError("Mandates are not supported in C++ mode.")
+        _check_cpp_assets(self.assets)
 
         # Ensure books are initialized if empty
         if not self.books:
@@ -163,27 +215,23 @@ class CppStrategyRunner:
         if pa_table is None:
             raise ValueError("Conversion to PyArrow table resulted in None")
 
-        # 1. Convert Assets
-        cpp_assets = []
-        for asset in self.assets:
-            if isinstance(asset, PyOHLCAsset):
-                cpp_asset = yabte_cpp.OHLCAsset(
-                    asset.name,
-                    asset.denom,
-                    asset.price_round_dp,
-                    asset.quantity_round_dp,
-                    asset.data_label
-                    or asset.name,  # Use asset.name as fallback for data_label
-                )
-            else:
-                cpp_asset = yabte_cpp.OHLCAsset(
-                    asset.name,
-                    asset.denom,
-                    asset.price_round_dp,
-                    asset.quantity_round_dp,
-                    asset.data_label or asset.name,
-                )
-            cpp_assets.append(cpp_asset)
+        # 1. Convert Assets (_check_cpp_assets has rejected anything else)
+        fill_price_map = {
+            "midpoint": yabte_cpp.FillPrice.MIDPOINT,
+            "open": yabte_cpp.FillPrice.OPEN,
+            "close": yabte_cpp.FillPrice.CLOSE,
+        }
+        cpp_assets = [
+            yabte_cpp.OHLCAsset(
+                asset.name,
+                asset.denom,
+                asset.price_round_dp,
+                asset.quantity_round_dp,
+                asset.data_label or asset.name,
+                fill_price_map[asset.fill_price],
+            )
+            for asset in cast(List[PyOHLCAsset], self.assets)
+        ]
 
         # 2. Convert Strategies (Adapter)
         cpp_strategies = []
@@ -412,6 +460,11 @@ class CppStrategyAdapter(yabte_cpp.Strategy if yabte_cpp else object):  # type: 
                     f"{type(py_ord).__name__} is not supported by the C++ "
                     'engine; use engine="python" for this strategy.'
                 )
+
+            _check_cpp_order(
+                py_ord,
+                PositionalOrder if isinstance(py_ord, PositionalOrder) else SimpleOrder,
+            )
 
             # Map OrderSizeType
             size_type_map = {

@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import TypeAlias, TypeVar, Union, cast
+from typing import Literal, TypeAlias, TypeVar, Union, cast, get_args
 
 import pandas as pd
 
 from ._helpers import round_dp
 
-__all__ = ["OHLCAsset", "MissingPriceError", "find_missing_data"]
+__all__ = ["OHLCAsset", "FillPrice", "MissingPriceError", "find_missing_data"]
 
 
 # TODO: switch to IntFlag since no longer using mypyc
@@ -19,6 +19,9 @@ AssetName: TypeAlias = str
 """Asset name string."""
 
 T = TypeVar("T", bound=Union[pd.Series, pd.DataFrame])
+
+FillPrice: TypeAlias = Literal["midpoint", "open", "close"]
+"""Which price `OHLCAsset` orders fill at; see `OHLCAsset.fill_price`."""
 
 
 class MissingPriceError(ValueError):
@@ -115,11 +118,31 @@ class OHLCAsset(Asset):
     """Assets whose price history is represented by High, Low, Open, Close and Volume
     fields."""
 
+    fill_price: FillPrice = "midpoint"
+    """The price orders fill at.
+
+    - ``"midpoint"`` (the default): the mean of the row's `High` and `Low`, or its
+      `Close` if either is missing.
+    - ``"open"``: the row's `Open`, which is then a required field. Use it for orders
+      placed in `on_open`: they execute on the same row, and the other prices aren't
+      known at the open yet.
+    - ``"close"``: the row's `Close`.
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.fill_price not in get_args(FillPrice):
+            raise ValueError(
+                f"fill_price must be one of {get_args(FillPrice)}, "
+                f"not {self.fill_price!r}"
+            )
+
     def data_fields(self) -> list[tuple[str, AssetDataFieldInfo]]:
+        open_required = ADFI_REQUIRED if self.fill_price == "open" else 0
         return [
             ("High", ADFI_AVAILABLE_AT_CLOSE),
             ("Low", ADFI_AVAILABLE_AT_CLOSE),
-            ("Open", ADFI_AVAILABLE_AT_CLOSE | ADFI_AVAILABLE_AT_OPEN),
+            ("Open", ADFI_AVAILABLE_AT_CLOSE | ADFI_AVAILABLE_AT_OPEN | open_required),
             ("Close", ADFI_AVAILABLE_AT_CLOSE | ADFI_REQUIRED),
             ("Volume", ADFI_AVAILABLE_AT_CLOSE),
         ]
@@ -127,7 +150,11 @@ class OHLCAsset(Asset):
     def intraday_traded_price(
         self, asset_day_data: pd.Series, size: Decimal | None = None
     ) -> Decimal:
-        if pd.notnull(asset_day_data.Low) and pd.notnull(asset_day_data.High):
+        if self.fill_price == "open":
+            p = Decimal(asset_day_data.Open)
+        elif self.fill_price == "close":
+            p = Decimal(asset_day_data.Close)
+        elif pd.notnull(asset_day_data.Low) and pd.notnull(asset_day_data.High):
             p = Decimal((asset_day_data.Low + asset_day_data.High) / 2)
         else:
             p = Decimal(asset_day_data.Close)

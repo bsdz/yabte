@@ -146,8 +146,15 @@ All orders take `book` (a book name; omit it for the first book), `label`, `prio
   plus positions at the traded prices, and `size` is ignored. They are Python engine
   only.
 
-Orders fill at the asset's `intraday_traded_price`, which for `OHLCAsset` is the mean of
-`High` and `Low`, or `Close` if either is missing. Final statuses are `COMPLETE`,
+Orders fill at the asset's `intraday_traded_price`. For `OHLCAsset` that depends on its
+`fill_price`:
+
+- `"midpoint"` (the default): the mean of `High` and `Low`, or `Close` if either is
+  missing. Neither is known at the open, so orders placed in `on_open` fill at prices
+  from later in the row.
+- `"open"`: `Open`, which is then a required field. Use it for orders placed in
+  `on_open`.
+- `"close"`: `Close`. Final statuses are `COMPLETE`,
 `CANCELLED`, `REPLACED` and `MANDATE_FAILED`. An order still `OPEN` at the end of the
 run is in `srr.orders_unprocessed`.
 
@@ -231,9 +238,10 @@ The C++ engine's limits:
 
 - Mandates raise `ValueError`.
 - Basket orders raise `NotImplementedError`.
-- Custom `Asset` and order subclasses are converted to `OHLCAsset`, `SimpleOrder` or
-  `PositionalOrder` **without an error**, so `pre_execute_check`, `post_complete` and
-  custom pricing don't run. Use the Python engine for those.
+- Asset subclasses that override `intraday_traded_price`, `end_of_day_price`,
+  `data_fields`, `check_and_fix_data` or `round_quantity`, and order subclasses that override
+  `pre_execute_check`, `post_complete` or `apply`, raise `NotImplementedError`. Use the
+  Python engine for those, or `fill_price` for a different fill.
 - A timezone-aware index works. Days are its local dates, and a local time that occurs
   twice (clocks going back) raises `ValueError`.
 

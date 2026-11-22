@@ -4,6 +4,7 @@ from yabte.backtest.asset import (
     ADFI_REQUIRED,
     AssetDataFieldInfo,
     AssetName,
+    FillPrice,
     MissingPriceError,
     OHLCAsset,
     find_missing_data,
@@ -24,6 +25,7 @@ from yabte.backtest.transaction import CashTransaction, Trade
 
 __all__ = [
     "OHLCAsset",
+    "FillPrice",
     "AssetDataFieldInfo",
     "AssetName",
     "Book",

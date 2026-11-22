@@ -7,7 +7,7 @@ Features
 * Event driven, ie `on_open`, `on_close`, etc. 
 * Daily or intraday bars. Book end-of-day tasks run once per date, after its last bar.
 * Multiple assets.
-* OHLC Asset. Extendable (e.g support additional fields, e.g. Volatility, or entirely different fields, e.g. Barrels per day).
+* OHLC Asset, filling orders at the High/Low midpoint, the Open or the Close. Extendable (e.g support additional fields, e.g. Volatility, or entirely different fields, e.g. Barrels per day).
 * Multiple books, each with optional interest on cash.
 * Positional and Basket orders. Extendible (e.g. can support stop loss).
 * Batch runs (for optimization).
@@ -26,8 +26,10 @@ natively in C++ also run in parallel in `run_batch`.
 The C++ backend has some limits:
 
 * Mandates raise `ValueError` and basket orders raise `NotImplementedError`.
-* Custom `Asset` and order subclasses are converted to their base classes without an
-  error, so overridden hooks such as `pre_execute_check` don't run.
+* Asset and order subclasses that override a pricing or execution hook, such as
+  `intraday_traded_price` or `pre_execute_check`, raise `NotImplementedError`, because
+  the C++ engine would ignore the override. For a different fill price, use
+  `OHLCAsset(fill_price="open")` or `"close"`, which both engines support.
 
 ## Core dependencies
 
