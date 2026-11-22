@@ -13,6 +13,7 @@ Features
   the difference to the target. Extendible (e.g. can support stop loss).
 * Batch runs (for optimization).
 * Captures book history including transactions & daily cash, MtM and total values.
+* `Strategy.record` keeps per-timestamp diagnostics as a DataFrame.
 * Missing prices raise `MissingPriceError` when a run needs them, and `find_missing_data` lists gaps before a run.
 
 The module provides basic statistics like book cash, mtm and total value. Currently, everything else needs to be deferred to a 3rd party module like `empyrical`.

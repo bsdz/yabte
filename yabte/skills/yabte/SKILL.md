@@ -78,7 +78,9 @@ Inside these, use:
 - `self.data`: the data up to and including `self.ts`, the current timestamp;
 - `self.params`: a `pd.Series` of the run's parameters;
 - `self.orders`: the queue to append orders to;
-- `self.books` and `self.assets`: dicts by name.
+- `self.books` and `self.assets`: dicts by name;
+- `self.record(**values)`: stores diagnostics against `self.ts`. Read them after the
+  run as a DataFrame, `srr.strategies[0].recorded`, one row per timestamp.
 
 ```python
 class SMACross(Strategy):
@@ -101,6 +103,7 @@ class SMACross(Strategy):
             row = self.data[name].iloc[-1]
             if np.isnan(row.Slow):
                 continue  # still warming up
+            self.record(**{f"{name}_spread": row.Fast - row.Slow})
             target = 100 if row.Fast > row.Slow else 0
             # trades to the target position; repeating a target does nothing
             self.orders.append(PositionalOrder(asset_name=name, size=target, key=name))
@@ -120,6 +123,7 @@ srr = runner.run({"fast": 10, "slow": 30})
 srr.book_history.Main.total  # one row per date; columns (book, field): cash, mtm, total
 srr.transaction_history  # ts, total, desc, quantity, price, asset_name, order_label, book
 statuses = [o.status.name for o in srr.orders_processed]
+spreads = srr.strategies[0].recorded  # what SMACross passed to self.record
 ```
 
 `run()` copies the books, assets and strategies, so the same runner can run again with

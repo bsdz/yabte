@@ -367,6 +367,67 @@ class TestCloseFirstParity(ParityAssertionsMixin, unittest.TestCase):
                 self.assertResultParity(res_py, res_cpp, context=str(close_first))
 
 
+class Recorder(Strategy):
+    """Module level, so run_batch's worker processes can import it."""
+
+    def on_open(self):
+        self.record(open=self.data.A.Open.iloc[-1])
+
+    def on_close(self):
+        self.record(close=self.data.A.Close.iloc[-1], scale=self.params.get("scale", 1))
+
+
+class TestRecordParity(unittest.TestCase):
+    """`Strategy.record` gives the same table on both engines."""
+
+    def setUp(self):
+        idx = pd.bdate_range("2025-01-06", periods=4)
+        self.data = pd.DataFrame(
+            {
+                ("A", "Open"): [1.0, 2.0, 3.0, 4.0],
+                ("A", "Close"): [1.5, 2.5, 3.5, 4.5],
+            },
+            index=idx,
+        )
+        self.expected = pd.DataFrame(
+            {"open": [1.0, 2.0, 3.0, 4.0], "close": [1.5, 2.5, 3.5, 4.5]}, index=idx
+        )
+
+    def runner(self, engine):
+        return StrategyRunner(
+            data=self.data,
+            assets=[OHLCAsset(name="A")],
+            strategies=[Recorder()],
+            engine=engine,
+        )
+
+    def test_recorded(self):
+        skip_or_fail_without_cpp(self)
+        for engine in ["python", "cpp"]:
+            with self.subTest(engine=engine):
+                srr = self.runner(engine).run({"scale": 2})
+                recorded = srr.strategies[0].recorded
+                pd.testing.assert_frame_equal(
+                    recorded[["open", "close"]], self.expected, check_freq=False
+                )
+                self.assertEqual(recorded.scale.to_list(), [2] * 4)
+
+    def test_batch_runs_record_separately(self):
+        skip_or_fail_without_cpp(self)
+        for engine in ["python", "cpp"]:
+            with self.subTest(engine=engine):
+                srrs = self.runner(engine).run_batch([{"scale": 1}, {"scale": 3}])
+                self.assertEqual(
+                    [r.strategies[0].recorded.scale.iloc[-1] for r in srrs], [1, 3]
+                )
+                self.assertEqual([len(r.strategies[0].recorded) for r in srrs], [4, 4])
+
+    def test_record_needs_a_timestamp(self):
+        with self.assertRaisesRegex(RuntimeError, "needs a timestamp"):
+            Strategy().record(x=1)
+        self.assertTrue(Strategy().recorded.empty)
+
+
 class TestCppRejectsSubclasses(unittest.TestCase):
     """The C++ engine refuses subclasses whose overrides it would ignore."""
 
