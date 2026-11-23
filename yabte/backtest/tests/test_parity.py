@@ -8,6 +8,7 @@ import pandas as pd
 
 from yabte.backtest import (
     Book,
+    CostType,
     MissingPriceError,
     OHLCAsset,
     OrderSizeType,
@@ -554,6 +555,118 @@ class TestNonScalarParams(ParityAssertionsMixin, unittest.TestCase):
             sr.run(self.PARAMS[0])
 
 
+class TestTransactionCostParity(ParityAssertionsMixin, unittest.TestCase):
+    """Asset transaction costs, charged on each order's net quantity per asset."""
+
+    TARGETS = ["5", "3", "3", "-2.5", "0"]
+
+    def run_engine(self, engine, cost_type, cost, close_first=True, extra=None):
+        idx = pd.bdate_range("2025-01-06", periods=len(self.TARGETS))
+        data = pd.DataFrame(
+            {
+                ("A", f): [100.0 + i for i in range(len(idx))]
+                for f in ["High", "Low", "Close"]
+            },
+            index=idx,
+        )
+        targets = self.TARGETS
+
+        class Rebalance(Strategy):
+            def on_open(self):
+                i = len(self.data) - 1
+                self.orders.append(
+                    PositionalOrder(
+                        asset_name="A",
+                        size=targets[i],
+                        close_first=close_first,
+                        label=f"rebalance {i}",
+                    )
+                )
+                if extra is not None and i == 1:
+                    self.orders.append(extra())
+
+        return StrategyRunner(
+            data=data,
+            assets=[OHLCAsset(name="A", cost=cost, cost_type=cost_type)],
+            strategies=[Rebalance()],
+            books=[Book(name="Main", cash="1000")],
+            engine=engine,
+        ).run()
+
+    def costs(self, res):
+        tx = res.transaction_history
+        return tx[tx.type == "Cost"]
+
+    def test_cost_types(self):
+        skip_or_fail_without_cpp(self)
+        # net quantities 5, -2, -5.5, 2.5 at prices 100, 101, 103, 104
+        expected = {
+            (CostType.BPS, "10"): ["0.5", "0.202", "0.5665", "0.26"],
+            (CostType.PER_UNIT, "0.65"): ["3.25", "1.3", "3.575", "1.625"],
+            (CostType.PER_ORDER, "1"): ["1", "1", "1", "1"],
+        }
+        for (cost_type, cost), amounts in expected.items():
+            for close_first in (True, False):
+                with self.subTest(cost_type=cost_type, close_first=close_first):
+                    res_py = self.run_engine("python", cost_type, cost, close_first)
+                    res_cpp = self.run_engine("cpp", cost_type, cost, close_first)
+                    costs = self.costs(res_py)
+                    self.assertEqual(
+                        costs.total.to_list(), [-Decimal(a) for a in amounts]
+                    )
+                    self.assertEqual(
+                        costs.charged_quantity.to_list(),
+                        [Decimal(q) for q in ["5", "-2", "-5.5", "2.5"]],
+                    )
+                    self.assertEqual(
+                        costs.order_label.to_list(),
+                        ["rebalance 0", "rebalance 1", "rebalance 3", "rebalance 4"],
+                    )
+                    self.assertEqual(set(costs.cost_type), {cost_type})
+                    self.assertEqual(
+                        res_py.books[0].cash,
+                        Decimal(1000) - sum(Decimal(a) for a in amounts)
+                        # what the trades made: flat at the end
+                        + (
+                            -5 * Decimal(100)
+                            + 2 * Decimal(101)
+                            + Decimal("5.5") * 103
+                            - Decimal("2.5") * 104
+                        ),
+                    )
+                    self.assertResultParity(res_py, res_cpp, context=str(cost_type))
+                    self.assertEqual(len(self.costs(res_cpp)), 4)
+
+    def test_no_cost_books_nothing(self):
+        skip_or_fail_without_cpp(self)
+        for engine in ("python", "cpp"):
+            with self.subTest(engine=engine):
+                res = self.run_engine(engine, CostType.BPS, "0")
+                self.assertEqual(set(res.transaction_history.type), {"Trade"})
+
+    def test_book_percent_sizes_on_cash_after_costs(self):
+        skip_or_fail_without_cpp(self)
+
+        def buy_half_of_cash():
+            return SimpleOrder(
+                asset_name="A", size=50, size_type=OrderSizeType.BOOK_PERCENT
+            )
+
+        res_py = self.run_engine(
+            "python", CostType.PER_ORDER, "20", extra=buy_half_of_cash
+        )
+        res_cpp = self.run_engine(
+            "cpp", CostType.PER_ORDER, "20", extra=buy_half_of_cash
+        )
+        self.assertResultParity(res_py, res_cpp)
+        # day 1: cash after day 0's buy of 5 at 100 and its cost, then the rebalance
+        # to 3 (sells 2 at 101) and its cost
+        cash = Decimal(1000) - 500 - 20 + 202 - 20
+        tx = res_py.transaction_history
+        bought = tx[(tx.type == "Trade") & (tx.order_label.isna())].quantity.iloc[0]
+        self.assertEqual(bought, round(cash / 2 / 101, 2))
+
+
 class TestCppRejectsSubclasses(unittest.TestCase):
     """The C++ engine refuses subclasses whose overrides it would ignore."""
 
@@ -582,6 +695,13 @@ class TestCppRejectsSubclasses(unittest.TestCase):
         class TradeAtOpen(OHLCAsset):
             def intraday_traded_price(self, asset_day_data, size=None):
                 return Decimal(asset_day_data.Open)
+
+        class StepFee(OHLCAsset):
+            def transaction_cost(self, quantity, price):
+                return Decimal(1 if abs(quantity) < 10 else 2)
+
+        with self.assertRaisesRegex(NotImplementedError, "transaction_cost"):
+            self.run_cpp(StepFee(name="A"))
 
         class WholeLots(OHLCAsset):
             def round_quantity(self, quantity):

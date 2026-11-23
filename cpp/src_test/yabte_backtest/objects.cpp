@@ -7,7 +7,7 @@
 #include "YABTE/BackTest/Book.hpp"
 #include "YABTE/BackTest/Transaction.hpp"
 
-using YABTE::BackTest::Book, YABTE::BackTest::CashTransaction, YABTE::BackTest::FillPrice,
+using YABTE::BackTest::Book, YABTE::BackTest::CashTransaction, YABTE::BackTest::CostType, YABTE::BackTest::FillPrice,
     YABTE::BackTest::OHLCAsset,
     YABTE::BackTest::Trade, YABTE::BackTest::TransactionVector;
 
@@ -81,4 +81,24 @@ TEST(AssetTest, FillPrice) {
     auto a = OHLCAsset("foo", "USD", 2, 2, "foo", FillPrice::OPEN);
     auto c = std::dynamic_pointer_cast<OHLCAsset>(a.clone());
     EXPECT_EQ(c->fill_price_, FillPrice::OPEN);
+}
+
+TEST(AssetTest, TransactionCost) {
+    auto cost = [](CostType ct, double c, double q, double p) {
+        return OHLCAsset("foo", "USD", 2, 2, "foo", FillPrice::MIDPOINT, c, ct)
+            .transaction_cost(q, p);
+    };
+    EXPECT_NEAR(cost(CostType::BPS, 10., -5., 100.), 0.5, 1e-12);
+    EXPECT_NEAR(cost(CostType::PER_UNIT, 0.65, -2., 100.), 1.3, 1e-12);
+    EXPECT_NEAR(cost(CostType::PER_ORDER, 1., 7., 100.), 1., 1e-12);
+    EXPECT_EQ(cost(CostType::PER_ORDER, 1., 0., 100.), 0.);  // nothing traded
+    EXPECT_EQ(cost(CostType::BPS, 0., 5., 100.), 0.);         // the default
+    EXPECT_THROW(cost(CostType::BPS, -1., 5., 100.), std::invalid_argument);
+
+    // the setting survives the clone each run makes
+    auto a = OHLCAsset("foo", "USD", 2, 2, "foo", FillPrice::MIDPOINT, 3.,
+                       CostType::PER_UNIT);
+    auto c = a.clone();
+    EXPECT_EQ(c->cost_, 3.);
+    EXPECT_EQ(c->cost_type_, CostType::PER_UNIT);
 }

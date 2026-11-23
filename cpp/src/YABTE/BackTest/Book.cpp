@@ -40,10 +40,9 @@ void Book::add_transactions(const TransactionVector& transactions) {
             trade != nullptr) {
             this->positions_[trade->asset_name_] += trade->quantity_;
             this->cash_ += trade->total_;
-        } else if (auto ctran =
-                       dynamic_cast<const CashTransaction*>(tran.get());
-                   ctran != nullptr) {
-            this->cash_ += ctran->total_;
+        } else if (dynamic_cast<const CashTransaction*>(tran.get()) != nullptr ||
+                   dynamic_cast<const Cost*>(tran.get()) != nullptr) {
+            this->cash_ += tran->total_;
         } else {
             throw std::runtime_error("Unsupport transaction class");
         }

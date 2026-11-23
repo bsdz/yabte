@@ -125,9 +125,17 @@ class StrategyRunnerResult:
 
     @property
     def transaction_history(self) -> pd.DataFrame:
-        """Dataframe with trade history."""
+        """Dataframe with trade history.
+
+        `type` is each transaction's class: `Trade`, `Cost` or `CashTransaction`.
+        """
         return pd.concat(
-            [pd.DataFrame(bk.transactions).assign(book=bk.name) for bk in self.books]
+            [
+                pd.DataFrame(bk.transactions).assign(
+                    book=bk.name, type=[type(t).__name__ for t in bk.transactions]
+                )
+                for bk in self.books
+            ]
         )
 
 

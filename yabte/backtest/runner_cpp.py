@@ -72,6 +72,7 @@ _ASSET_HOOKS = (
     "data_fields",
     "check_and_fix_data",
     "round_quantity",
+    "transaction_cost",
 )
 _ORDER_HOOKS = (
     "pre_execute_check",
@@ -264,6 +265,8 @@ class CppStrategyRunner:
                 asset.quantity_round_dp,
                 asset.data_label or asset.name,
                 fill_price_map[asset.fill_price],
+                float(asset.cost),
+                yabte_cpp.CostType(asset.cost_type.value),
             )
             for asset in cast(List[PyOHLCAsset], self.assets)
         ]
@@ -351,7 +354,8 @@ class CppStrategyRunner:
 
             # Transactions
             # Imports
-            from .transaction import CashTransaction, Trade, Transaction
+            from .asset import CostType
+            from .transaction import CashTransaction, Cost, Trade, Transaction
 
             py_trans: List[Transaction] = []
             for t in cb.transactions:
@@ -375,6 +379,18 @@ class CppStrategyRunner:
                         desc=t.desc,
                     )
                     py_trans.append(py_t)
+                elif isinstance(t, yabte_cpp.Cost):
+                    py_trans.append(
+                        Cost(
+                            ts=self._ts(t.ts_ns),
+                            total=Decimal(str(t.total)),
+                            desc=t.desc,
+                            asset_name=t.asset_name,
+                            order_label=t.order_label,
+                            charged_quantity=Decimal(str(t.charged_quantity)),
+                            cost_type=CostType(int(t.cost_type)),
+                        )
+                    )
                 elif isinstance(t, yabte_cpp.CashTransaction):
                     py_ct = CashTransaction(
                         ts=self._ts(t.ts_ns), total=t.total, desc=t.desc

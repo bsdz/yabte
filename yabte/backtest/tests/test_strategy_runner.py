@@ -1,6 +1,7 @@
 import logging
 import unittest
 from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 
@@ -12,6 +13,7 @@ from yabte.backtest import (
     BasketOrder,
     Book,
     BookMandate,
+    CostType,
     MissingPriceError,
     OHLCAsset,
     OrderSizeType,
@@ -390,6 +392,45 @@ class StrategyRunnerTestCase(ParityAssertionsMixin, NumpyTestCase):
                     [Decimal(q) for q in a_trades],
                 )
                 self.assertEqual(srr.books[0].positions["B"], Decimal(60))
+
+    def test_positional_basket_order_costs(self):
+        """Basket orders pay each asset's cost on its own net quantity."""
+        idx = pd.bdate_range("2025-01-06", periods=3)
+        data = pd.DataFrame(
+            {(a, "Close"): [10.0, 11.0, 12.0] for a in ["A", "B"]}, index=idx
+        )
+
+        class Rebalance(Strategy):
+            def on_open(self):
+                self.orders.append(
+                    PositionalBasketOrder(
+                        asset_names=["A", "B"], weights=[1, 2], size=len(self.data) * 10
+                    )
+                )
+
+        srr = StrategyRunner(
+            data=data,
+            assets=[
+                OHLCAsset(name="A", cost="0.1", cost_type=CostType.PER_UNIT),
+                OHLCAsset(name="B", cost="10", cost_type=CostType.BPS),
+            ],
+            strategies=[Rebalance()],
+        ).run()
+        th = srr.transaction_history
+        costs = th[th.type == "Cost"]
+        # close_first books -10/+20 in A on day 2, but only the net 10 is charged
+        self.assertEqual(costs.asset_name.to_list(), ["A", "B"] * 3)
+        self.assertEqual(
+            costs.charged_quantity.to_list(), [Decimal(q) for q in [10, 20] * 3]
+        )
+        self.assertEqual(
+            costs.total.to_list(),
+            [-Decimal(c) for c in ["1", "0.2", "1", "0.22", "1", "0.24"]],
+        )
+        # costs carry no quantity, so trade quantities still sum to positions
+        self.assertEqual(
+            th[th.asset_name == "A"].quantity.sum(), srr.books[0].positions["A"]
+        )
 
     def test_basket_order_quantity(self):
         # Basket orders might not be fully supported in C++ yet if they are expanded in Python.
@@ -998,6 +1039,22 @@ class StrategyRunnerTestCase(ParityAssertionsMixin, NumpyTestCase):
             [t.quantity for t in srr.books[0].transactions],
         )
         self.assertEqual(srr.books[0].positions["GOOG"], 0)
+
+        # a rejected order books no cost either
+        costed = [
+            replace(a, cost=Decimal(1), cost_type=CostType.PER_ORDER)
+            for a in self.assets
+        ]
+        srr = StrategyRunner(
+            data=self.df_combined.iloc[:5],
+            assets=costed,
+            strategies=[BuyThenOversellStrat()],
+            books=[
+                Book(name="Main", cash=Decimal(0), mandates={"GOOG": LongOnlyMandate()})
+            ],
+        ).run()
+        th = srr.transaction_history
+        self.assertEqual(th.type.to_list(), ["Trade", "Cost", "Trade", "Cost"])
 
         # the C++ engine can't apply mandates, so it must refuse rather than ignore them
         skip_or_fail_without_cpp(self)

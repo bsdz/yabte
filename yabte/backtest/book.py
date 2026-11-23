@@ -9,7 +9,7 @@ import pandas as pd
 
 from ._helpers import ensure_decimal
 from .asset import Asset, AssetName, _require_price
-from .transaction import CashTransaction, Trade, Transaction
+from .transaction import CashTransaction, Cost, Trade, Transaction
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ class Book:
             if isinstance(tran, Trade):
                 self.positions[tran.asset_name] += tran.quantity
                 self.cash += tran.total
-            elif isinstance(tran, CashTransaction):
+            elif isinstance(tran, (CashTransaction, Cost)):
                 self.cash += tran.total
             else:
                 raise ValueError(f"Unsupport transaction class: {type(tran)}")

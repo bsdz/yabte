@@ -36,4 +36,17 @@ shared_ptr<Transaction> Trade::clone() const {
     return make_shared<Trade>(*this);
 }
 
+Cost::Cost(const Timestamp &ts, const double &cost, const string &asset_name,
+           const optional<string> &order_label, const double &charged_quantity,
+           CostType cost_type)
+    : Transaction(ts, -cost, "cost "s + asset_name),
+      asset_name_(asset_name),
+      order_label_(order_label),
+      charged_quantity_(charged_quantity),
+      cost_type_(cost_type) {}
+
+shared_ptr<Transaction> Cost::clone() const {
+    return make_shared<Cost>(*this);
+}
+
 }  // namespace YABTE::BackTest

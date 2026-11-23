@@ -2,9 +2,11 @@
 
 #include <glog/logging.h>
 
+#include <map>
 #include <stdexcept>
+#include <utility>
 
-using std::runtime_error, std::make_shared;
+using std::runtime_error, std::make_shared, std::map, std::pair;
 
 namespace YABTE::BackTest {
 
@@ -21,6 +23,27 @@ void Order::_book_trades(const vector<shared_ptr<Trade>> trades,
     // test then book trades, do any post complete tasks
     if (this->book_->test_trades(trades)) {
         TransactionVector transactions(trades.begin(), trades.end());
+        // each asset's cost, charged on the net quantity the order trades in it
+        // (as the Python Order._costs), so closing and reopening pays only on
+        // the difference
+        vector<string> asset_names;
+        map<string, pair<double, double>> net_and_price;
+        for (const auto& trade : trades) {
+            auto [it, added] = net_and_price.try_emplace(
+                trade->asset_name_, 0., trade->price_);
+            if (added) asset_names.push_back(trade->asset_name_);
+            it->second.first += trade->quantity_;
+        }
+        for (const auto& name : asset_names) {
+            const auto& asset = asset_map.at(name);
+            auto quantity = asset->round_quantity(net_and_price[name].first);
+            auto cost = asset->transaction_cost(quantity, net_and_price[name].second);
+            if (cost != 0) {
+                transactions.push_back(make_shared<Cost>(
+                    trades.front()->ts_, cost, name, this->label_, quantity,
+                    asset->cost_type_));
+            }
+        }
         this->book_->add_transactions(transactions);
         // Python sums Decimal quantities exactly; doubles drift off the asset's
         // quantity grid, so snap back to it (a flat position must be exactly 0)

@@ -2,6 +2,8 @@
 
 #include <arrow/table.h>
 
+#include <cmath>
+#include <format>
 #include <iostream>
 #include <limits>
 #include <regex>
@@ -14,11 +16,18 @@ namespace YABTE::BackTest {
 Asset::Asset(const string &name, const string &denom,
              const optional<int> &price_round_dp,
              const optional<int> &quantity_round_dp,
-             const optional<string> &data_label)
+             const optional<string> &data_label, double cost,
+             CostType cost_type)
     : name_(name),
       denom_(denom),
       price_round_dp_(price_round_dp),
-      quantity_round_dp_(quantity_round_dp) {
+      quantity_round_dp_(quantity_round_dp),
+      cost_(cost),
+      cost_type_(cost_type) {
+    if (cost < 0) {
+        throw std::invalid_argument(
+            std::format("cost must not be negative, not {}", cost));
+    }
     if (data_label.has_value()) {
         this->data_label_ = data_label.value();
     } else {
@@ -28,6 +37,19 @@ Asset::Asset(const string &name, const string &denom,
 
 double Asset::round_quantity(const double &quantity) const {
     return round_dp(quantity, this->quantity_round_dp_);
+}
+
+double Asset::transaction_cost(double quantity, double price) const {
+    if (this->cost_ == 0 || quantity == 0) return 0.;
+    switch (this->cost_type_) {
+        case CostType::BPS:
+            return this->cost_ * std::abs(quantity * price) / 10'000;
+        case CostType::PER_UNIT:
+            return this->cost_ * std::abs(quantity);
+        case CostType::PER_ORDER:
+            return this->cost_;
+    }
+    throw std::runtime_error("Unexpected cost type");
 }
 
 vector<string> Asset::_get_fields(const AssetDataFieldInfo &field_info) const {
@@ -147,8 +169,9 @@ OHLCAsset::OHLCAsset(const string &name, const string &denom,
                      const optional<int> &price_round_dp,
                      const optional<int> &quantity_round_dp,
                      const optional<string> &data_label,
-                     FillPrice fill_price)
-    : Asset(name, denom, price_round_dp, quantity_round_dp, data_label),
+                     FillPrice fill_price, double cost, CostType cost_type)
+    : Asset(name, denom, price_round_dp, quantity_round_dp, data_label, cost,
+            cost_type),
       fill_price_(fill_price) {}
 
 shared_ptr<Asset> OHLCAsset::clone() const {

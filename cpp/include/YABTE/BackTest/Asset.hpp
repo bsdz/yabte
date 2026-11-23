@@ -32,6 +32,10 @@ class Asset {
     virtual shared_ptr<Asset> clone() const = 0;
 
     double round_quantity(const double &quantity) const;
+
+    // The cost of one order trading a net `quantity` at `price`; see the Python
+    // Asset.transaction_cost.
+    double transaction_cost(double quantity, double price) const;
     
     // New efficient methods that take full table and index
     virtual double intraday_traded_price(
@@ -55,12 +59,15 @@ class Asset {
     optional<int> price_round_dp_;
     optional<int> quantity_round_dp_;
     string data_label_;
+    double cost_ = 0.;
+    CostType cost_type_ = CostType::BPS;
 
    protected:
     Asset(const string &name, const string &denom,
           const optional<int> &price_round_dp = 2,
           const optional<int> &quantity_round_dp = 2,
-          const optional<string> &data_label = nullopt);
+          const optional<string> &data_label = nullopt, double cost = 0.,
+          CostType cost_type = CostType::BPS);
 };
 
 using AssetMap = map<string, shared_ptr<Asset>>;
@@ -75,7 +82,8 @@ class OHLCAsset : public Asset {
               const optional<int> &price_round_dp = 2,
               const optional<int> &quantity_round_dp = 2,
               const optional<string> &data_label = nullopt,
-              FillPrice fill_price = FillPrice::MIDPOINT);
+              FillPrice fill_price = FillPrice::MIDPOINT, double cost = 0.,
+              CostType cost_type = CostType::BPS);
 
     FillPrice fill_price_;
 

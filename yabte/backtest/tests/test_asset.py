@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pandas as pd
 
-from yabte.backtest import OHLCAsset, find_missing_data
+from yabte.backtest import CostType, OHLCAsset, find_missing_data
 
 # Check if C++ engine is available
 from yabte.backtest.runner_cpp import yabte_cpp as yabte_cpp_backtest
@@ -24,6 +24,30 @@ class AssetTestCase(unittest.TestCase):
                 self.assertEqual(asset.intraday_traded_price(row), Decimal(expected))
         with self.assertRaisesRegex(ValueError, "fill_price must be one of"):
             OHLCAsset(name="A", fill_price="vwap")  # type: ignore[arg-type]
+
+    def test_transaction_cost(self):
+        for cost_type, cost, expected in [
+            (CostType.BPS, "10", "0.5"),
+            (CostType.PER_UNIT, "0.65", "3.25"),
+            (CostType.PER_ORDER, "1", "1"),
+        ]:
+            with self.subTest(cost_type=cost_type):
+                asset = OHLCAsset(name="A", cost=cost, cost_type=cost_type)
+                self.assertEqual(
+                    asset.transaction_cost(Decimal(-5), Decimal(100)),
+                    Decimal(expected),
+                )
+                self.assertEqual(asset.transaction_cost(Decimal(0), Decimal(100)), 0)
+        self.assertEqual(
+            OHLCAsset(name="A").transaction_cost(Decimal(5), Decimal(1)), 0
+        )
+        # like OrderSizeType, the enum can be given by name
+        self.assertEqual(
+            OHLCAsset(name="A", cost_type="per_unit").cost_type,  # type: ignore[arg-type]
+            CostType.PER_UNIT,
+        )
+        with self.assertRaisesRegex(ValueError, "cost must not be negative"):
+            OHLCAsset(name="A", cost=-1)
 
     def test_open_fill_requires_open(self):
         data = pd.DataFrame(

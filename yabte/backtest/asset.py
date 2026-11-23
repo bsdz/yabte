@@ -1,12 +1,19 @@
 from dataclasses import dataclass
 from decimal import Decimal
+from enum import Enum
 from typing import Literal, TypeAlias, TypeVar, Union, cast, get_args
 
 import pandas as pd
 
-from ._helpers import round_dp
+from ._helpers import ensure_decimal, ensure_enum, round_dp
 
-__all__ = ["OHLCAsset", "FillPrice", "MissingPriceError", "find_missing_data"]
+__all__ = [
+    "OHLCAsset",
+    "CostType",
+    "FillPrice",
+    "MissingPriceError",
+    "find_missing_data",
+]
 
 
 # TODO: switch to IntFlag since no longer using mypyc
@@ -22,6 +29,19 @@ T = TypeVar("T", bound=Union[pd.Series, pd.DataFrame])
 
 FillPrice: TypeAlias = Literal["midpoint", "open", "close"]
 """Which price `OHLCAsset` orders fill at; see `OHLCAsset.fill_price`."""
+
+
+class CostType(Enum):
+    """How `Asset.cost` is charged on each order's net traded quantity in the asset."""
+
+    BPS = 1
+    """Basis points of the traded notional: `cost` × |quantity × price| / 10,000."""
+
+    PER_UNIT = 2
+    """Per unit of quantity, e.g. per contract: `cost` × |quantity|."""
+
+    PER_ORDER = 3
+    """A flat fee per order in the asset: `cost`."""
 
 
 class MissingPriceError(ValueError):
@@ -65,13 +85,42 @@ class Asset:
     Defaults to `name`
     """
 
+    cost: Decimal = Decimal(0)
+    """Transaction cost, in the unit `cost_type` sets.
+
+    Zero (the default) charges nothing.
+    """
+
+    cost_type: CostType = CostType.BPS
+    """How `cost` is charged; see `CostType`."""
+
     def __post_init__(self):
         if self.data_label is None:
             self.data_label = self.name
+        self.cost = ensure_decimal(self.cost)
+        self.cost_type = ensure_enum(self.cost_type, CostType)
+        if self.cost < 0:
+            raise ValueError(f"cost must not be negative, not {self.cost}")
 
     def round_quantity(self, quantity) -> Decimal:
         """Round `quantity`."""
         return round_dp(quantity, self.quantity_round_dp)
+
+    def transaction_cost(self, quantity: Decimal, price: Decimal) -> Decimal:
+        """The cost of one order trading a net `quantity` of this asset at `price`.
+
+        Orders book it as a `Cost` transaction alongside their trades. It isn't rounded,
+        like a trade's total.
+        """
+        if self.cost == 0 or quantity == 0:
+            return Decimal(0)
+        if self.cost_type == CostType.BPS:
+            return self.cost * abs(quantity * price) / 10_000
+        if self.cost_type == CostType.PER_UNIT:
+            return self.cost * abs(quantity)
+        if self.cost_type == CostType.PER_ORDER:
+            return self.cost
+        raise ValueError(f"Unexpected cost type {self.cost_type}")
 
     def intraday_traded_price(
         self, asset_day_data: pd.Series, size: Decimal | None = None

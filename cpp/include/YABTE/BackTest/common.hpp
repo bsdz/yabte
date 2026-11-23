@@ -69,6 +69,9 @@ inline double require_price(double price, const std::string &asset_name,
     return price;
 }
 
+// How Asset::cost_ is charged; see the Python CostType.
+enum class CostType { BPS = 1, PER_UNIT = 2, PER_ORDER = 3 };
+
 }  // namespace YABTE::BackTest
 
 /* ideally DayData would be a map like

@@ -45,4 +45,18 @@ class Trade : public Transaction {
     optional<string> order_label_;
 };
 
+// The transaction cost of one order's trades in one asset; see the Python Cost.
+class Cost : public Transaction {
+   public:
+    Cost(const Timestamp &ts, const double &cost, const string &asset_name,
+         const optional<string> &order_label, const double &charged_quantity,
+         CostType cost_type);
+    virtual shared_ptr<Transaction> clone() const;
+
+    string asset_name_;
+    optional<string> order_label_;
+    double charged_quantity_;
+    CostType cost_type_;
+};
+
 }  // namespace YABTE::BackTest
