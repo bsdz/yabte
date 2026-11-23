@@ -12,7 +12,7 @@ Features
 * Positional and Basket orders. Positional orders can close and reopen, or trade only
   the difference to the target. Extendible (e.g. can support stop loss).
 * Batch runs (for optimization).
-* Captures book history including transactions & daily cash, MtM and total values.
+* Captures book history including transactions & daily cash, MtM, total values and costs paid, plus per-asset turnover.
 * `Strategy.record` keeps per-timestamp diagnostics as a DataFrame.
 * Transaction costs per asset (basis points, per unit or per order), booked as separate `Cost` transactions.
 * Missing prices raise `MissingPriceError` when a run needs them, and `find_missing_data` lists gaps before a run.

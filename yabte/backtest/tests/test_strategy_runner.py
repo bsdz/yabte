@@ -432,6 +432,17 @@ class StrategyRunnerTestCase(ParityAssertionsMixin, NumpyTestCase):
             th[th.asset_name == "A"].quantity.sum(), srr.books[0].positions["A"]
         )
 
+    def test_turnover_without_trades(self):
+        idx = pd.bdate_range("2025-01-06", periods=2)
+        data = pd.DataFrame({("A", "Close"): [10.0, 11.0]}, index=idx)
+        srr = StrategyRunner(
+            data=data, assets=[OHLCAsset(name="A")], strategies=[Strategy()]
+        ).run()
+        self.assertTrue(srr.turnover.empty)
+        self.assertEqual(
+            srr.turnover.columns.to_list(), ["trades", "quantity", "notional", "costs"]
+        )
+
     def test_basket_order_quantity(self):
         # Basket orders might not be fully supported in C++ yet if they are expanded in Python.
         # But if they are just orders that expand to suborders, and suborders are supported, it might work?

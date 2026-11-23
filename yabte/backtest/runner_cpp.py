@@ -339,7 +339,7 @@ class CppStrategyRunner:
             df = table.to_pandas()
             if self._local_to_aware is not None:
                 df["ts"] = [self._ts(ts.value) for ts in df.ts]
-            return df[["ts", "cash", "mtm", "total"]].values.tolist()
+            return df[["ts", "cash", "mtm", "total", "costs"]].values.tolist()
 
         # Re-construct Python books
         for i, cb in enumerate(cpp_result.books):
@@ -350,6 +350,7 @@ class CppStrategyRunner:
                 cash=cb.cash,
                 rate=cb.rate,
                 interest_round_dp=cb.interest_round_dp,
+                costs=Decimal(str(cb.costs)),
             )
 
             # Transactions

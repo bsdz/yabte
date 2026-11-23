@@ -6,6 +6,7 @@ import warnings
 from concurrent.futures import Executor, ProcessPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, Dict, Iterable, List, Optional, cast
 
 import pandas as pd
@@ -120,8 +121,46 @@ class StrategyRunnerResult:
 
     @property
     def book_history(self) -> pd.DataFrame:
-        """Dataframe with book cash, mtm and total value history."""
+        """Dataframe with book cash, mtm and total value history, and the transaction
+        costs paid so far."""
         return pd.concat({b.name: b.history for b in self.books}, axis=1)
+
+    @property
+    def turnover(self) -> pd.DataFrame:
+        """What each book traded in each asset, and the transaction costs it paid.
+
+        Indexed by `book` and `asset_name`, with columns `trades` (the number of
+        trades), `quantity` and `notional` (summed absolute traded quantity and value)
+        and `costs`. A `PositionalOrder` with `close_first=True` books two trades,
+        closing and reopening, and both count here, though costs are charged only on the
+        difference.
+        """
+        th = self.transaction_history
+        index = pd.MultiIndex.from_tuples([], names=["book", "asset_name"])
+        columns = ["trades", "quantity", "notional", "costs"]
+        if "asset_name" not in th:  # no trades at all
+            return pd.DataFrame(index=index, columns=columns)
+        trades = th[th.type == "Trade"]
+        summary = pd.DataFrame(
+            {
+                "trades": trades.groupby(["book", "asset_name"]).size(),
+                "quantity": trades.quantity.abs()
+                .groupby([trades.book, trades.asset_name])
+                .sum(),
+                "notional": (trades.quantity * trades.price)
+                .abs()
+                .groupby([trades.book, trades.asset_name])
+                .sum(),
+            }
+        )
+        costs = th[th.type == "Cost"]
+        paid = (-costs.total).groupby([costs.book, costs.asset_name]).sum()
+        summary["costs"] = (
+            paid.reindex(summary.index).map(lambda c: Decimal(0) if pd.isna(c) else c)
+            if len(summary)
+            else []
+        )
+        return summary
 
     @property
     def transaction_history(self) -> pd.DataFrame:

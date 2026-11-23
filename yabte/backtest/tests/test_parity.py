@@ -637,12 +637,35 @@ class TestTransactionCostParity(ParityAssertionsMixin, unittest.TestCase):
                     self.assertResultParity(res_py, res_cpp, context=str(cost_type))
                     self.assertEqual(len(self.costs(res_cpp)), 4)
 
+    def test_reporting(self):
+        skip_or_fail_without_cpp(self)
+        for engine in ("python", "cpp"):
+            with self.subTest(engine=engine):
+                res = self.run_engine(engine, CostType.PER_UNIT, "0.65")
+                # costs paid so far: on net quantities 5, -2, -, -5.5 and 2.5
+                self.assertEqual(
+                    res.book_history.Main.costs.to_list(),
+                    [3.25, 4.55, 4.55, 8.125, 9.75],
+                )
+                self.assertEqual(float(res.books[0].costs), 9.75)
+                # close_first books close and reopen trades: 5, -5 +3, -3 -2.5, 2.5
+                turnover = res.turnover.loc[("Main", "A")]
+                self.assertEqual(turnover.trades, 6)
+                self.assertEqual(float(turnover.quantity), 21)
+                self.assertEqual(
+                    float(turnover.notional),
+                    5 * 100 + 8 * 101 + 5.5 * 103 + 2.5 * 104,
+                )
+                self.assertEqual(float(turnover.costs), 9.75)
+
     def test_no_cost_books_nothing(self):
         skip_or_fail_without_cpp(self)
         for engine in ("python", "cpp"):
             with self.subTest(engine=engine):
                 res = self.run_engine(engine, CostType.BPS, "0")
                 self.assertEqual(set(res.transaction_history.type), {"Trade"})
+                self.assertEqual(set(res.book_history.Main.costs), {0})
+                self.assertEqual(res.turnover.costs.to_list(), [0])
 
     def test_book_percent_sizes_on_cash_after_costs(self):
         skip_or_fail_without_cpp(self)

@@ -469,6 +469,7 @@ PYBIND11_MODULE(_yabte_backtest_lib, m) {
         .def_readonly("cash", &Book::cash_)
         .def_readonly("rate", &Book::rate_)
         .def_readonly("interest_round_dp", &Book::interest_round_dp_)
+        .def_readonly("costs", &Book::costs_)
         .def_readonly("transactions", &Book::transactions_)
         .def_property_readonly("history", [](const Book &b) -> py::handle {
             return arrow::py::wrap_table(b.history());

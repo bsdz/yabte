@@ -41,9 +41,11 @@ class Book {
     // Cache the total value for easy access by Orders
     double total_value_ = 0.0; 
     int interest_round_dp_;
+    // transaction costs paid so far, a positive amount
+    double costs_ = 0.0;
     map<string, double> positions_;
     TransactionVector transactions_;
-    vector<tuple<Timestamp, double, double, double>> _history_;
+    vector<tuple<Timestamp, double, double, double, double>> _history_;
 };
 
 using BookMap = map<string, shared_ptr<Book>>;

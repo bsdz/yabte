@@ -121,9 +121,10 @@ runner = StrategyRunner(
 )
 srr = runner.run({"fast": 10, "slow": 30})
 
-srr.book_history.Main.total  # one row per date; columns (book, field): cash, mtm, total
+srr.book_history.Main.total  # one row per date; (book, field): cash, mtm, total, costs
 srr.transaction_history  # ts, total, desc, quantity, price, asset_name, ..., book, type
 statuses = [o.status.name for o in srr.orders_processed]
+srr.turnover  # per book and asset: trades, quantity, notional, costs
 spreads = srr.strategies[0].recorded  # what SMACross passed to self.record
 ```
 
@@ -175,7 +176,8 @@ Fills carry no costs unless the asset sets them: `cost` plus a `CostType` in
 Each order is charged on its net quantity in each asset, so a `PositionalOrder` that
 closes and reopens pays only on the difference. The cost is booked as a `Cost`
 transaction beside the trades and comes out of cash, so `book_history` and later
-`BOOK_PERCENT` orders see it. Costs aren't rounded. For anything else, such as tiered
+`BOOK_PERCENT` orders see it. `book_history` also has the costs paid so far, and
+`srr.turnover` sums each asset's traded notional and costs. Costs aren't rounded. For anything else, such as tiered
 fees, override `transaction_cost(quantity, price)` (Python engine only).
 
 Final statuses are `COMPLETE`,
