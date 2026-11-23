@@ -440,14 +440,16 @@ PYBIND11_MODULE(_yabte_backtest_lib, m) {
 
     py::class_<Cost, Transaction, shared_ptr<Cost>>(m, "Cost")
         .def(py::init<const Timestamp &, const double &, const string &,
-                      const optional<string> &, const double &, CostType>(),
+                      const optional<string> &, const double &, CostType,
+                      const optional<string> &>(),
              py::arg("ts"), py::arg("cost"), py::arg("asset_name"),
              py::arg("order_label"), py::arg("charged_quantity"),
-             py::arg("cost_type"))
+             py::arg("cost_type"), py::arg("cost_field") = nullopt)
         .def_readonly("asset_name", &Cost::asset_name_)
         .def_readonly("order_label", &Cost::order_label_)
         .def_readonly("charged_quantity", &Cost::charged_quantity_)
-        .def_readonly("cost_type", &Cost::cost_type_);
+        .def_readonly("cost_type", &Cost::cost_type_)
+        .def_readonly("cost_field", &Cost::cost_field_);
 
     py::bind_vector<TransactionVector>(m, "TransactionVector");
 
@@ -483,7 +485,9 @@ PYBIND11_MODULE(_yabte_backtest_lib, m) {
         .def("transaction_cost", &Asset::transaction_cost, py::arg("quantity"),
              py::arg("price"))
         .def_readonly("cost", &Asset::cost_)
-        .def_readonly("cost_type", &Asset::cost_type_);
+        .def_readonly("cost_type", &Asset::cost_type_)
+        .def_readonly("cost_field", &Asset::cost_field_)
+        .def_readonly("cost_field_type", &Asset::cost_field_type_);
 
     py::enum_<FillPrice>(m, "FillPrice")
         .value("MIDPOINT", FillPrice::MIDPOINT)
@@ -493,12 +497,15 @@ PYBIND11_MODULE(_yabte_backtest_lib, m) {
     py::class_<OHLCAsset, Asset, shared_ptr<OHLCAsset>>(m, "OHLCAsset")
         .def(py::init<const string &, const string &, const optional<int> &,
                       const optional<int> &, const optional<string> &,
-                      FillPrice, double, CostType>(),
+                      FillPrice, double, CostType, const optional<string> &,
+                      CostType>(),
              py::arg("name"), py::arg("denom") = "USD",
              py::arg("price_round_dp") = 2, py::arg("quantity_round_dp") = 2,
              py::arg("data_label") = nullopt,
              py::arg("fill_price") = FillPrice::MIDPOINT, py::arg("cost") = 0.,
-             py::arg("cost_type") = CostType::BPS)
+             py::arg("cost_type") = CostType::BPS,
+             py::arg("cost_field") = nullopt,
+             py::arg("cost_field_type") = CostType::PER_UNIT)
         .def(py::init<const string &, const string &>())
         .def_readonly("fill_price", &OHLCAsset::fill_price_);
 

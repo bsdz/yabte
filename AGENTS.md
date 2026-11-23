@@ -199,8 +199,10 @@ The engine is built around five cooperating dataclasses, all re-exported from
   `key` lets a newer order supersede an older one with the same key
   (`remove_duplicate_keys`). `apply()` computes trades and calls `_book_trades()`, which
   checks the book's mandates before booking. It also books each asset's transaction
-  cost (`Asset.cost`/`cost_type`, a `CostType`), charged on the order's net quantity in
-  that asset, as a `Cost` transaction; C++ does the same in `Order::_book_trades`.
+  cost (`Asset.cost`/`cost_type`, a `CostType`), and any cost read from the data
+  (`cost_field`/`cost_field_type`, from the row the order executes on), each charged on
+  the order's net quantity in that asset as its own `Cost` transaction, with the shared
+  formula `charge_cost`; C++ does the same in `Order::_book_trades`.
 - **`Strategy`** (`strategy.py`) — user-authored subclasses implement `init()` (run once,
   can enrich `self.data`), `on_open()`, and `on_close()` (run every timestep). `self.data`
   is a *view* of the full dataset windowed up to `self.ts`; during `on_open()` an

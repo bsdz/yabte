@@ -19,7 +19,8 @@ Order::Order(const optional<string>& book_name, const optional<string>& label,
       key_(key) {}
 
 void Order::_book_trades(const vector<shared_ptr<Trade>> trades,
-                         const AssetMap& asset_map) {
+                         const AssetMap& asset_map, const arrow::Table& data,
+                         int64_t idx) {
     // test then book trades, do any post complete tasks
     if (this->book_->test_trades(trades)) {
         TransactionVector transactions(trades.begin(), trades.end());
@@ -37,11 +38,18 @@ void Order::_book_trades(const vector<shared_ptr<Trade>> trades,
         for (const auto& name : asset_names) {
             const auto& asset = asset_map.at(name);
             auto quantity = asset->round_quantity(net_and_price[name].first);
-            auto cost = asset->transaction_cost(quantity, net_and_price[name].second);
-            if (cost != 0) {
+            auto price = net_and_price[name].second;
+            const auto& ts = trades.front()->ts_;
+            // one Cost per source: the fixed cost, then the cost from data
+            if (auto cost = asset->transaction_cost(quantity, price); cost != 0) {
                 transactions.push_back(make_shared<Cost>(
-                    trades.front()->ts_, cost, name, this->label_, quantity,
-                    asset->cost_type_));
+                    ts, cost, name, this->label_, quantity, asset->cost_type_));
+            }
+            if (auto cost = asset->data_cost(quantity, price, data, idx, ts);
+                cost != 0) {
+                transactions.push_back(make_shared<Cost>(
+                    ts, cost, name, this->label_, quantity,
+                    asset->cost_field_type_, asset->cost_field_));
             }
         }
         this->book_->add_transactions(transactions);
@@ -141,7 +149,7 @@ void SimpleOrder::apply(const Timestamp& ts, const DayData& day_data,
     vector<shared_ptr<Trade>> trades;
     trades.push_back(make_shared<Trade>(ts, trade_quantity, trade_price,
                                         this->asset_name_, this->label_));
-    this->_book_trades(trades, asset_map);
+    this->_book_trades(trades, asset_map, day_data, 0);
 }
 
 void SimpleOrder::apply(const Timestamp &ts, const std::shared_ptr<arrow::Table>& data, int64_t idx, const AssetMap &asset_map) {
@@ -162,7 +170,7 @@ void SimpleOrder::apply(const Timestamp &ts, const std::shared_ptr<arrow::Table>
     vector<shared_ptr<Trade>> trades;
     trades.push_back(make_shared<Trade>(ts, trade_quantity, trade_price,
                                         this->asset_name_, this->label_));
-    this->_book_trades(trades, asset_map);
+    this->_book_trades(trades, asset_map, *data, idx);
 }
 
 

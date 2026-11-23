@@ -31,6 +31,7 @@ class PositionalOrder : public SimpleOrder {
    private:
     // checks the position against the target and books the trades
     void trade_to_target(const Timestamp &ts, double trade_quantity,
-                         double trade_price, const AssetMap &asset_map);
+                         double trade_price, const AssetMap &asset_map,
+                         const arrow::Table &data, int64_t idx);
 };
 }  // namespace YABTE::BackTest

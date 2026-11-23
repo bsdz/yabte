@@ -38,12 +38,14 @@ shared_ptr<Transaction> Trade::clone() const {
 
 Cost::Cost(const Timestamp &ts, const double &cost, const string &asset_name,
            const optional<string> &order_label, const double &charged_quantity,
-           CostType cost_type)
-    : Transaction(ts, -cost, "cost "s + asset_name),
+           CostType cost_type, const optional<string> &cost_field)
+    : Transaction(ts, -cost,
+                  (cost_field ? *cost_field + " cost "s : "cost "s) + asset_name),
       asset_name_(asset_name),
       order_label_(order_label),
       charged_quantity_(charged_quantity),
-      cost_type_(cost_type) {}
+      cost_type_(cost_type),
+      cost_field_(cost_field) {}
 
 shared_ptr<Transaction> Cost::clone() const {
     return make_shared<Cost>(*this);

@@ -59,6 +59,16 @@ def _process_safe_reason(runner: "StrategyRunner") -> str | None:
     return None
 
 
+def _check_cost_fields(df: pd.DataFrame, assets: Iterable[Asset]):
+    """Check `df` has a column for each asset's `cost_field`; both engines call it."""
+    for asset in assets:
+        if asset.cost_field and (asset.data_label, asset.cost_field) not in df.columns:
+            raise ValueError(
+                f"{asset.name} has cost_field {asset.cost_field!r}, but data has no"
+                f" column {(asset.data_label, asset.cost_field)}"
+            )
+
+
 def _check_data(df, asset_map):
     """Check data structure correct."""
     if not isinstance(df.index, pd.DatetimeIndex):
@@ -82,6 +92,8 @@ def _check_data(df, asset_map):
         raise ValueError(
             f"some assets are missing corresponding data: {assets_missing_data}"
         )
+
+    _check_cost_fields(df, asset_map.values())
 
     # check and fix data for each asset
     dfs = {
@@ -133,7 +145,8 @@ class StrategyRunnerResult:
         trades), `quantity` and `notional` (summed absolute traded quantity and value)
         and `costs`. A `PositionalOrder` with `close_first=True` books two trades,
         closing and reopening, and both count here, though costs are charged only on the
-        difference.
+        difference. If any costs were read from data (`Asset.cost_field`), `costs` is
+        split into `fixed_costs` and one `<cost_field>_costs` column per field.
         """
         th = self.transaction_history
         index = pd.MultiIndex.from_tuples([], names=["book", "asset_name"])
@@ -154,12 +167,21 @@ class StrategyRunnerResult:
             }
         )
         costs = th[th.type == "Cost"]
-        paid = (-costs.total).groupby([costs.book, costs.asset_name]).sum()
-        summary["costs"] = (
-            paid.reindex(summary.index).map(lambda c: Decimal(0) if pd.isna(c) else c)
-            if len(summary)
-            else []
-        )
+
+        def paid(rows):
+            sums = (-rows.total).groupby([rows.book, rows.asset_name]).sum()
+            if not len(summary):
+                return []
+            return sums.reindex(summary.index).map(
+                lambda c: Decimal(0) if pd.isna(c) else c
+            )
+
+        summary["costs"] = paid(costs)
+        fields = costs.cost_field if "cost_field" in costs else pd.Series(dtype=object)
+        if fields.notna().any():
+            summary["fixed_costs"] = paid(costs[fields.isna()])
+            for name in fields.dropna().unique():
+                summary[f"{name}_costs"] = paid(costs[fields == name])
         return summary
 
     @property

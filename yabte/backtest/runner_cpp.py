@@ -14,7 +14,7 @@ from .book import Book, BookMandate
 from .order import Orders, OrderStatus
 from .row_wrapper import MultiIndexRowWrapper
 from .strategy import Strategy
-from .strategyrunner import StrategyRunnerResult
+from .strategyrunner import StrategyRunnerResult, _check_cost_fields
 
 try:
     from . import _yabte_backtest_lib as yabte_cpp  # type: ignore[attr-defined]
@@ -158,6 +158,7 @@ class CppStrategyRunner:
         if self.mandates or any(book.mandates for book in self.books):
             raise ValueError("Mandates are not supported in C++ mode.")
         _check_cpp_assets(self.assets)
+        _check_cost_fields(data, self.assets)
 
         # Ensure books are initialized if empty
         if not self.books:
@@ -267,6 +268,8 @@ class CppStrategyRunner:
                 fill_price_map[asset.fill_price],
                 float(asset.cost),
                 yabte_cpp.CostType(asset.cost_type.value),
+                asset.cost_field,
+                yabte_cpp.CostType(asset.cost_field_type.value),
             )
             for asset in cast(List[PyOHLCAsset], self.assets)
         ]
@@ -390,6 +393,7 @@ class CppStrategyRunner:
                             order_label=t.order_label,
                             charged_quantity=Decimal(str(t.charged_quantity)),
                             cost_type=CostType(int(t.cost_type)),
+                            cost_field=t.cost_field,
                         )
                     )
                 elif isinstance(t, yabte_cpp.CashTransaction):

@@ -1,9 +1,10 @@
 import unittest
 from decimal import Decimal
 
+import numpy as np
 import pandas as pd
 
-from yabte.backtest import CostType, OHLCAsset, find_missing_data
+from yabte.backtest import CostType, MissingPriceError, OHLCAsset, find_missing_data
 
 # Check if C++ engine is available
 from yabte.backtest.runner_cpp import yabte_cpp as yabte_cpp_backtest
@@ -48,6 +49,34 @@ class AssetTestCase(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "cost must not be negative"):
             OHLCAsset(name="A", cost=-1)
+
+    def test_data_cost(self):
+        ts = pd.Timestamp("2025-01-06")
+        row = pd.Series({"HalfSpread": 0.05, "Gap": np.nan, "Bad": -1.0})
+        q, p = Decimal(-4), Decimal(100)
+        for field_type, expected in [
+            (CostType.PER_UNIT, Decimal("0.2")),
+            (CostType.BPS, Decimal("0.002")),
+            (CostType.PER_ORDER, Decimal("0.05")),
+        ]:
+            with self.subTest(field_type=field_type):
+                asset = OHLCAsset(
+                    name="A", cost_field="HalfSpread", cost_field_type=field_type
+                )
+                self.assertEqual(asset.data_cost(q, p, row, ts), expected)
+        self.assertEqual(OHLCAsset(name="A").data_cost(q, p, row, ts), 0)
+        # nothing traded: the value isn't read
+        gap = OHLCAsset(name="A", cost_field="Gap")
+        self.assertEqual(gap.data_cost(Decimal(0), p, row, ts), 0)
+        for field in ("Gap", "Missing"):
+            with self.assertRaisesRegex(MissingPriceError, f"No {field} value for A"):
+                OHLCAsset(name="A", cost_field=field).data_cost(q, p, row, ts)
+        with self.assertRaisesRegex(ValueError, "Bad for A on .* is negative"):
+            OHLCAsset(name="A", cost_field="Bad").data_cost(q, p, row, ts)
+        self.assertEqual(
+            OHLCAsset(name="A", cost_field_type="bps").cost_field_type,  # type: ignore[arg-type]
+            CostType.BPS,
+        )
 
     def test_open_fill_requires_open(self):
         data = pd.DataFrame(

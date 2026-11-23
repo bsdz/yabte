@@ -8,7 +8,7 @@
 #include "YABTE/BackTest/Transaction.hpp"
 
 using YABTE::BackTest::Book, YABTE::BackTest::CashTransaction, YABTE::BackTest::CostType, YABTE::BackTest::FillPrice,
-    YABTE::BackTest::OHLCAsset,
+    YABTE::BackTest::MissingPriceError, YABTE::BackTest::OHLCAsset,
     YABTE::BackTest::Trade, YABTE::BackTest::TransactionVector;
 
 TEST(TransactionTest, BasicAssertions) {
@@ -101,4 +101,50 @@ TEST(AssetTest, TransactionCost) {
     auto c = a.clone();
     EXPECT_EQ(c->cost_, 3.);
     EXPECT_EQ(c->cost_type_, CostType::PER_UNIT);
+}
+
+TEST(AssetTest, DataCost) {
+    // one row: foo.HalfSpread = 0.05, foo.Bad = -1, foo.Gap = null
+    arrow::DoubleBuilder spread, bad, gap;
+    ASSERT_TRUE(spread.Append(0.05).ok());
+    ASSERT_TRUE(bad.Append(-1.).ok());
+    ASSERT_TRUE(gap.AppendNull().ok());
+    auto schema = arrow::schema({arrow::field("foo.HalfSpread", arrow::float64()),
+                                 arrow::field("foo.Bad", arrow::float64()),
+                                 arrow::field("foo.Gap", arrow::float64())});
+    auto table = arrow::Table::Make(schema, {spread.Finish().ValueOrDie(),
+                                             bad.Finish().ValueOrDie(),
+                                             gap.Finish().ValueOrDie()});
+    auto ts = timestamp_from_ns(0);
+    auto asset = [](const char *field, CostType ct) {
+        return OHLCAsset("foo", "USD", 2, 2, "foo", FillPrice::MIDPOINT, 0.,
+                         CostType::BPS, field, ct);
+    };
+    EXPECT_NEAR(asset("HalfSpread", CostType::PER_UNIT)
+                    .data_cost(-4., 100., *table, 0, ts),
+                0.2, 1e-12);
+    EXPECT_NEAR(asset("HalfSpread", CostType::BPS)
+                    .data_cost(-4., 100., *table, 0, ts),
+                0.002, 1e-12);
+    EXPECT_NEAR(asset("HalfSpread", CostType::PER_ORDER)
+                    .data_cost(-4., 100., *table, 0, ts),
+                0.05, 1e-12);
+    // nothing traded: the value isn't read, so gaps and bad values don't matter
+    EXPECT_EQ(asset("Gap", CostType::PER_UNIT).data_cost(0., 100., *table, 0, ts),
+              0.);
+    EXPECT_THROW(
+        asset("Gap", CostType::PER_UNIT).data_cost(1., 100., *table, 0, ts),
+        MissingPriceError);
+    EXPECT_THROW(
+        asset("Missing", CostType::PER_UNIT).data_cost(1., 100., *table, 0, ts),
+        MissingPriceError);
+    EXPECT_THROW(
+        asset("Bad", CostType::PER_UNIT).data_cost(1., 100., *table, 0, ts),
+        std::invalid_argument);
+    // no cost_field
+    EXPECT_EQ(OHLCAsset("foo", "USD").data_cost(1., 100., *table, 0, ts), 0.);
+    // the setting survives the clone each run makes
+    auto c = asset("HalfSpread", CostType::BPS).clone();
+    EXPECT_EQ(c->cost_field_, "HalfSpread");
+    EXPECT_EQ(c->cost_field_type_, CostType::BPS);
 }

@@ -178,7 +178,26 @@ closes and reopens pays only on the difference. The cost is booked as a `Cost`
 transaction beside the trades and comes out of cash, so `book_history` and later
 `BOOK_PERCENT` orders see it. `book_history` also has the costs paid so far, and
 `srr.turnover` sums each asset's traded notional and costs. Costs aren't rounded. For anything else, such as tiered
-fees, override `transaction_cost(quantity, price)` (Python engine only).
+fees, override `transaction_cost(quantity, price)` (Python engine only). It covers the
+fixed `cost` only.
+
+For a cost that varies by day, such as a bid/ask half spread, put it in a data column
+and name it in `cost_field`, with a `CostType` in `cost_field_type` (default
+`PER_UNIT`, in price units). It is charged on top of `cost`, using the value on the row
+the order executes on, and booked as its own `Cost` row (its `cost_field` column names
+the field). `srr.turnover` then splits `costs` into `fixed_costs` and
+`<field>_costs`. A NaN value raises `MissingPriceError`, and a negative one
+`ValueError`, but only on a row where the order trades the asset. The column is hidden
+in `on_open`, like `Close`. Both engines support it:
+
+```text
+data[("ACME", "HalfSpread")] = (data["ACME", "Ask"] - data["ACME", "Bid"]) / 2
+OHLCAsset(name="ACME", cost="1", cost_type=CostType.BPS, cost_field="HalfSpread")
+```
+
+Costs belong to the asset, so every book that trades it pays them. For a frictionless
+benchmark book next to a costed one, use a second asset with the same `data_label`
+and no costs.
 
 Final statuses are `COMPLETE`,
 `CANCELLED`, `REPLACED` and `MANDATE_FAILED`. An order still `OPEN` at the end of the

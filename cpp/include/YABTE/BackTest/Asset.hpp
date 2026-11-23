@@ -33,9 +33,16 @@ class Asset {
 
     double round_quantity(const double &quantity) const;
 
-    // The cost of one order trading a net `quantity` at `price`; see the Python
-    // Asset.transaction_cost.
+    // The fixed cost of one order trading a net `quantity` at `price`; see the
+    // Python Asset.transaction_cost.
     double transaction_cost(double quantity, double price) const;
+
+    // The cost read from `cost_field_` in row `idx` of `data` (flattened
+    // "label.field" columns); see the Python Asset.data_cost. Throws
+    // MissingPriceError for a missing value and invalid_argument for a negative
+    // one, but only when `quantity` isn't zero.
+    double data_cost(double quantity, double price, const arrow::Table &data,
+                     int64_t idx, const Timestamp &ts) const;
     
     // New efficient methods that take full table and index
     virtual double intraday_traded_price(
@@ -61,13 +68,17 @@ class Asset {
     string data_label_;
     double cost_ = 0.;
     CostType cost_type_ = CostType::BPS;
+    optional<string> cost_field_;
+    CostType cost_field_type_ = CostType::PER_UNIT;
 
    protected:
     Asset(const string &name, const string &denom,
           const optional<int> &price_round_dp = 2,
           const optional<int> &quantity_round_dp = 2,
           const optional<string> &data_label = nullopt, double cost = 0.,
-          CostType cost_type = CostType::BPS);
+          CostType cost_type = CostType::BPS,
+          const optional<string> &cost_field = nullopt,
+          CostType cost_field_type = CostType::PER_UNIT);
 };
 
 using AssetMap = map<string, shared_ptr<Asset>>;
@@ -83,7 +94,9 @@ class OHLCAsset : public Asset {
               const optional<int> &quantity_round_dp = 2,
               const optional<string> &data_label = nullopt,
               FillPrice fill_price = FillPrice::MIDPOINT, double cost = 0.,
-              CostType cost_type = CostType::BPS);
+              CostType cost_type = CostType::BPS,
+              const optional<string> &cost_field = nullopt,
+              CostType cost_field_type = CostType::PER_UNIT);
 
     FillPrice fill_price_;
 

@@ -103,9 +103,14 @@ class Cost(Transaction):
     cost_type: CostType
     """How the cost was charged."""
 
+    cost_field: str | None = None
+    """The data field the cost was read from (`Asset.cost_field`), or `None` for the
+    fixed cost (`Asset.cost`)."""
+
     def __post_init__(self):
         super().__post_init__()
         if not isinstance(self.charged_quantity, Decimal):
             object.__setattr__(self, "charged_quantity", Decimal(self.charged_quantity))
         if not self.desc:
-            object.__setattr__(self, "desc", f"cost {self.asset_name}")
+            source = f"{self.cost_field} cost" if self.cost_field else "cost"
+            object.__setattr__(self, "desc", f"{source} {self.asset_name}")
