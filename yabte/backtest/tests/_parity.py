@@ -43,8 +43,8 @@ def skip_or_fail_without_cpp(test_case):
 
 # Columns that together identify a transaction; used for canonical ordering and
 # for exact/near-exact comparison. ``desc`` is free text and deliberately excluded.
-TX_EXACT_COLUMNS = ["ts", "book", "asset_name"]
-TX_NUMERIC_COLUMNS = ["quantity", "price", "total"]
+TX_EXACT_COLUMNS = ["ts", "book", "type", "asset_name", "cost_field"]
+TX_NUMERIC_COLUMNS = ["quantity", "price", "charged_quantity", "total"]
 
 
 def canonical_transactions(tx: pd.DataFrame) -> pd.DataFrame:
@@ -64,7 +64,9 @@ def canonical_transactions(tx: pd.DataFrame) -> pd.DataFrame:
             tx[col] = np.nan
     tx["ts"] = pd.to_datetime(tx["ts"])
     tx["book"] = tx["book"].fillna("").astype(str)
+    tx["type"] = tx["type"].fillna("").astype(str)
     tx["asset_name"] = tx["asset_name"].fillna("").astype(str)
+    tx["cost_field"] = [f if isinstance(f, str) else "" for f in tx["cost_field"]]
     for col in TX_NUMERIC_COLUMNS:
         tx[col] = tx[col].astype(float)
     return (

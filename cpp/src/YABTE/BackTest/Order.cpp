@@ -2,9 +2,11 @@
 
 #include <glog/logging.h>
 
+#include <map>
 #include <stdexcept>
+#include <utility>
 
-using std::runtime_error, std::make_shared;
+using std::runtime_error, std::make_shared, std::map, std::pair;
 
 namespace YABTE::BackTest {
 
@@ -17,10 +19,39 @@ Order::Order(const optional<string>& book_name, const optional<string>& label,
       key_(key) {}
 
 void Order::_book_trades(const vector<shared_ptr<Trade>> trades,
-                         const AssetMap& asset_map) {
+                         const AssetMap& asset_map, const arrow::Table& data,
+                         int64_t idx) {
     // test then book trades, do any post complete tasks
     if (this->book_->test_trades(trades)) {
         TransactionVector transactions(trades.begin(), trades.end());
+        // each asset's cost, charged on the net quantity the order trades in it
+        // (as the Python Order._costs), so closing and reopening pays only on
+        // the difference
+        vector<string> asset_names;
+        map<string, pair<double, double>> net_and_price;
+        for (const auto& trade : trades) {
+            auto [it, added] = net_and_price.try_emplace(
+                trade->asset_name_, 0., trade->price_);
+            if (added) asset_names.push_back(trade->asset_name_);
+            it->second.first += trade->quantity_;
+        }
+        for (const auto& name : asset_names) {
+            const auto& asset = asset_map.at(name);
+            auto quantity = asset->round_quantity(net_and_price[name].first);
+            auto price = net_and_price[name].second;
+            const auto& ts = trades.front()->ts_;
+            // one Cost per source: the fixed cost, then the cost from data
+            if (auto cost = asset->transaction_cost(quantity, price); cost != 0) {
+                transactions.push_back(make_shared<Cost>(
+                    ts, cost, name, this->label_, quantity, asset->cost_type_));
+            }
+            if (auto cost = asset->data_cost(quantity, price, data, idx, ts);
+                cost != 0) {
+                transactions.push_back(make_shared<Cost>(
+                    ts, cost, name, this->label_, quantity,
+                    asset->cost_field_type_, asset->cost_field_));
+            }
+        }
         this->book_->add_transactions(transactions);
         // Python sums Decimal quantities exactly; doubles drift off the asset's
         // quantity grid, so snap back to it (a flat position must be exactly 0)
@@ -118,7 +149,7 @@ void SimpleOrder::apply(const Timestamp& ts, const DayData& day_data,
     vector<shared_ptr<Trade>> trades;
     trades.push_back(make_shared<Trade>(ts, trade_quantity, trade_price,
                                         this->asset_name_, this->label_));
-    this->_book_trades(trades, asset_map);
+    this->_book_trades(trades, asset_map, day_data, 0);
 }
 
 void SimpleOrder::apply(const Timestamp &ts, const std::shared_ptr<arrow::Table>& data, int64_t idx, const AssetMap &asset_map) {
@@ -139,7 +170,7 @@ void SimpleOrder::apply(const Timestamp &ts, const std::shared_ptr<arrow::Table>
     vector<shared_ptr<Trade>> trades;
     trades.push_back(make_shared<Trade>(ts, trade_quantity, trade_price,
                                         this->asset_name_, this->label_));
-    this->_book_trades(trades, asset_map);
+    this->_book_trades(trades, asset_map, *data, idx);
 }
 
 

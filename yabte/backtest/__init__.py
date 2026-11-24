@@ -4,6 +4,7 @@ from yabte.backtest.asset import (
     ADFI_REQUIRED,
     AssetDataFieldInfo,
     AssetName,
+    CostType,
     FillPrice,
     MissingPriceError,
     OHLCAsset,
@@ -21,17 +22,19 @@ from yabte.backtest.order import (
 )
 from yabte.backtest.strategy import Strategy
 from yabte.backtest.strategyrunner import StrategyRunner, StrategyRunnerResult
-from yabte.backtest.transaction import CashTransaction, Trade
+from yabte.backtest.transaction import CashTransaction, Cost, Trade
 
 __all__ = [
     "OHLCAsset",
     "FillPrice",
+    "CostType",
     "AssetDataFieldInfo",
     "AssetName",
     "Book",
     "BookName",
     "BookMandate",
     "CashTransaction",
+    "Cost",
     "SimpleOrder",
     "OrderSizeType",
     "OrderStatus",

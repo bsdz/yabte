@@ -6,6 +6,7 @@ import warnings
 from concurrent.futures import Executor, ProcessPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, Dict, Iterable, List, Optional, cast
 
 import pandas as pd
@@ -58,6 +59,16 @@ def _process_safe_reason(runner: "StrategyRunner") -> str | None:
     return None
 
 
+def _check_cost_fields(df: pd.DataFrame, assets: Iterable[Asset]):
+    """Check `df` has a column for each asset's `cost_field`; both engines call it."""
+    for asset in assets:
+        if asset.cost_field and (asset.data_label, asset.cost_field) not in df.columns:
+            raise ValueError(
+                f"{asset.name} has cost_field {asset.cost_field!r}, but data has no"
+                f" column {(asset.data_label, asset.cost_field)}"
+            )
+
+
 def _check_data(df, asset_map):
     """Check data structure correct."""
     if not isinstance(df.index, pd.DatetimeIndex):
@@ -81,6 +92,8 @@ def _check_data(df, asset_map):
         raise ValueError(
             f"some assets are missing corresponding data: {assets_missing_data}"
         )
+
+    _check_cost_fields(df, asset_map.values())
 
     # check and fix data for each asset
     dfs = {
@@ -120,14 +133,70 @@ class StrategyRunnerResult:
 
     @property
     def book_history(self) -> pd.DataFrame:
-        """Dataframe with book cash, mtm and total value history."""
+        """Dataframe with book cash, mtm and total value history, and the transaction
+        costs paid so far."""
         return pd.concat({b.name: b.history for b in self.books}, axis=1)
 
     @property
+    def turnover(self) -> pd.DataFrame:
+        """What each book traded in each asset, and the transaction costs it paid.
+
+        Indexed by `book` and `asset_name`, with columns `trades` (the number of
+        trades), `quantity` and `notional` (summed absolute traded quantity and value)
+        and `costs`. A `PositionalOrder` with `close_first=True` books two trades,
+        closing and reopening, and both count here, though costs are charged only on the
+        difference. If any costs were read from data (`Asset.cost_field`), `costs` is
+        split into `fixed_costs` and one `<cost_field>_costs` column per field.
+        """
+        th = self.transaction_history
+        index = pd.MultiIndex.from_tuples([], names=["book", "asset_name"])
+        columns = ["trades", "quantity", "notional", "costs"]
+        if "asset_name" not in th:  # no trades at all
+            return pd.DataFrame(index=index, columns=columns)
+        trades = th[th.type == "Trade"]
+        summary = pd.DataFrame(
+            {
+                "trades": trades.groupby(["book", "asset_name"]).size(),
+                "quantity": trades.quantity.abs()
+                .groupby([trades.book, trades.asset_name])
+                .sum(),
+                "notional": (trades.quantity * trades.price)
+                .abs()
+                .groupby([trades.book, trades.asset_name])
+                .sum(),
+            }
+        )
+        costs = th[th.type == "Cost"]
+
+        def paid(rows):
+            sums = (-rows.total).groupby([rows.book, rows.asset_name]).sum()
+            if not len(summary):
+                return []
+            return sums.reindex(summary.index).map(
+                lambda c: Decimal(0) if pd.isna(c) else c
+            )
+
+        summary["costs"] = paid(costs)
+        fields = costs.cost_field if "cost_field" in costs else pd.Series(dtype=object)
+        if fields.notna().any():
+            summary["fixed_costs"] = paid(costs[fields.isna()])
+            for name in fields.dropna().unique():
+                summary[f"{name}_costs"] = paid(costs[fields == name])
+        return summary
+
+    @property
     def transaction_history(self) -> pd.DataFrame:
-        """Dataframe with trade history."""
+        """Dataframe with trade history.
+
+        `type` is each transaction's class: `Trade`, `Cost` or `CashTransaction`.
+        """
         return pd.concat(
-            [pd.DataFrame(bk.transactions).assign(book=bk.name) for bk in self.books]
+            [
+                pd.DataFrame(bk.transactions).assign(
+                    book=bk.name, type=[type(t).__name__ for t in bk.transactions]
+                )
+                for bk in self.books
+            ]
         )
 
 

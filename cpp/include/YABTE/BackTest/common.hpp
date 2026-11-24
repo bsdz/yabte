@@ -69,6 +69,25 @@ inline double require_price(double price, const std::string &asset_name,
     return price;
 }
 
+// How Asset::cost_ is charged; see the Python CostType.
+enum class CostType { BPS = 1, PER_UNIT = 2, PER_ORDER = 3 };
+
+// The cost of one order trading a net `quantity` at `price`, at `rate` charged as
+// `cost_type`; see the Python charge_cost. Both of an asset's costs use it.
+inline double charge_cost(double rate, CostType cost_type, double quantity,
+                          double price) {
+    if (rate == 0 || quantity == 0) return 0.;
+    switch (cost_type) {
+        case CostType::BPS:
+            return rate * std::abs(quantity * price) / 10'000;
+        case CostType::PER_UNIT:
+            return rate * std::abs(quantity);
+        case CostType::PER_ORDER:
+            return rate;
+    }
+    throw std::runtime_error("Unexpected cost type");
+}
+
 }  // namespace YABTE::BackTest
 
 /* ideally DayData would be a map like

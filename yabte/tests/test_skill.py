@@ -55,7 +55,12 @@ class SkillContentTestCase(unittest.TestCase):
     def test_cited_constants_exist(self):
         """Upper-case names in backticks are real enum members or flags."""
         known = {"ADFI_AVAILABLE_AT_OPEN", "ADFI_AVAILABLE_AT_CLOSE", "ADFI_REQUIRED"}
-        for enum in (ybt.OrderSizeType, ybt.OrderStatus, ybt.PositionalOrderCheckType):
+        for enum in (
+            ybt.CostType,
+            ybt.OrderSizeType,
+            ybt.OrderStatus,
+            ybt.PositionalOrderCheckType,
+        ):
             known |= set(enum.__members__)
         cited = set(re.findall(r"`(?:[A-Za-z]+\.)?([A-Z][A-Z_]{2,})`", self.text))
         self.assertTrue(cited)

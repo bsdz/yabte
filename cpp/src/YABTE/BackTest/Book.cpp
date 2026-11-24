@@ -40,10 +40,11 @@ void Book::add_transactions(const TransactionVector& transactions) {
             trade != nullptr) {
             this->positions_[trade->asset_name_] += trade->quantity_;
             this->cash_ += trade->total_;
-        } else if (auto ctran =
-                       dynamic_cast<const CashTransaction*>(tran.get());
-                   ctran != nullptr) {
-            this->cash_ += ctran->total_;
+        } else if (dynamic_cast<const Cost*>(tran.get()) != nullptr) {
+            this->cash_ += tran->total_;
+            this->costs_ -= tran->total_;
+        } else if (dynamic_cast<const CashTransaction*>(tran.get()) != nullptr) {
+            this->cash_ += tran->total_;
         } else {
             throw std::runtime_error("Unsupport transaction class");
         }
@@ -83,7 +84,8 @@ void Book::eod_tasks(const Timestamp& ts, const DayData& day_data,
     // Update cached total value for next day's orders
     this->total_value_ = this->cash_ + mtm;
 
-    this->_history_.push_back({ts, this->cash_, mtm, this->total_value_});
+    this->_history_.push_back(
+        {ts, this->cash_, mtm, this->total_value_, this->costs_});
 }
 
 void Book::eod_tasks(const Timestamp& ts, const std::shared_ptr<arrow::Table>& data, int64_t idx,
@@ -111,12 +113,13 @@ void Book::eod_tasks(const Timestamp& ts, const std::shared_ptr<arrow::Table>& d
     // Update cached total value for next day's orders
     this->total_value_ = this->cash_ + mtm;
 
-    this->_history_.push_back({ts, this->cash_, mtm, this->total_value_});
+    this->_history_.push_back(
+        {ts, this->cash_, mtm, this->total_value_, this->costs_});
 }
 
 shared_ptr<Table> Book::history() const {
     shared_ptr<Table> table;
-    vector<std::string> names = {"ts", "cash", "mtm", "total"};
+    vector<std::string> names = {"ts", "cash", "mtm", "total", "costs"};
     if (!arrow::stl::TableFromTupleRange(arrow::default_memory_pool(),
                                          this->_history_, names, &table)
              .ok()) {

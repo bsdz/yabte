@@ -12,7 +12,7 @@ import pandas as pd
 from ._helpers import ensure_decimal, ensure_enum
 from .asset import Asset, AssetName, _require_price
 from .book import Book, BookName
-from .transaction import Trade
+from .transaction import Cost, Trade
 
 logger = logging.getLogger(__name__)
 
@@ -135,10 +135,71 @@ class Order:
     def __post_init__(self):
         pass
 
-    def _book_trades(self, trades):
-        # test then book trades, do any post complete tasks
+    def _costs(
+        self,
+        trades: List[Trade],
+        asset_map: Dict[str, Asset],
+        day_data: pd.Series | None,
+    ) -> List[Cost]:
+        """Each asset's transaction costs, charged on the net quantity `trades` trade in
+        it, so closing and reopening a position pays only on the difference.
+
+        There's one `Cost` per source: the fixed cost, then the one read from the
+        asset's `cost_field` in `day_data`.
+        """
+        net: Dict[AssetName, Decimal] = {}
+        prices: Dict[AssetName, Decimal] = {}
+        for t in trades:
+            net[t.asset_name] = net.get(t.asset_name, Decimal(0)) + t.quantity
+            prices.setdefault(t.asset_name, t.price)
+        costs = []
+        for asset_name, quantity in net.items():
+            asset = asset_map[asset_name]
+            price, ts = prices[asset_name], trades[0].ts
+            fixed = asset.transaction_cost(quantity, price)
+            from_data = Decimal(0)
+            if asset.cost_field is not None and quantity != 0:
+                if day_data is None:
+                    raise ValueError(
+                        f"{asset_name} has a cost_field, so _book_trades needs the"
+                        " day's data"
+                    )
+                from_data = asset.data_cost(
+                    quantity, price, asset._filter_data(day_data), ts
+                )
+            for cost, cost_type, cost_field in (
+                (fixed, asset.cost_type, None),
+                (from_data, asset.cost_field_type, asset.cost_field),
+            ):
+                if cost != 0:
+                    costs.append(
+                        Cost(
+                            ts=ts,
+                            total=-cost,
+                            asset_name=asset_name,
+                            order_label=self.label,
+                            charged_quantity=quantity,
+                            cost_type=cost_type,
+                            cost_field=cost_field,
+                        )
+                    )
+        return costs
+
+    def _book_trades(
+        self,
+        trades: List[Trade],
+        asset_map: Dict[str, Asset],
+        day_data: pd.Series | None = None,
+    ):
+        """Test then book `trades` and their costs, and do any post complete tasks.
+
+        `day_data` is the row the trades executed on, which costs read from data
+        (`Asset.cost_field`) need.
+        """
+        assert isinstance(self.book, Book)  # apply has resolved the book name
         if self.book.test_trades(trades):
-            self.book.add_transactions(trades)
+            costs = self._costs(trades, asset_map, day_data)
+            self.book.add_transactions([*trades, *costs])
             self.status = OrderStatus.COMPLETE
             self.post_complete(trades)
 
@@ -238,7 +299,7 @@ class SimpleOrder(Order):
             )
         ]
 
-        self._book_trades(trades)
+        self._book_trades(trades, asset_map, day_data)
 
 
 class PositionalOrderCheckType(Enum):
@@ -328,7 +389,7 @@ class PositionalOrder(SimpleOrder):
                 self.close_first,
             )
 
-        self._book_trades(trades)
+        self._book_trades(trades, asset_map, day_data)
 
 
 @dataclass
@@ -414,7 +475,7 @@ class BasketOrder(Order):
             for an, (tq, tp) in zip(self.asset_names, trade_quantity_prices)
         ]
 
-        self._book_trades(trades)
+        self._book_trades(trades, asset_map, day_data)
 
 
 @dataclass(kw_only=True)
@@ -460,4 +521,4 @@ class PositionalBasketOrder(BasketOrder):
                     self.close_first,
                 )
 
-        self._book_trades(trades)
+        self._book_trades(trades, asset_map, day_data)

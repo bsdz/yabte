@@ -39,8 +39,11 @@ class Order {
     virtual ~Order() = default;
     virtual shared_ptr<Order> clone() const = 0;
 
+    // `data` and `idx` give the row the trades executed on, for costs read
+    // from data (Asset::data_cost)
     void _book_trades(const vector<shared_ptr<Trade>> trades,
-                      const AssetMap &asset_map);
+                      const AssetMap &asset_map, const arrow::Table &data,
+                      int64_t idx);
 
     virtual void post_complete(const vector<shared_ptr<Trade>> trades);
     

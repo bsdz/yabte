@@ -31,6 +31,7 @@ import pandas as pd
 
 from yabte.backtest import (
     Book,
+    CostType,
     OHLCAsset,
     OrderSizeType,
     PositionalOrder,
@@ -120,15 +121,18 @@ runner = StrategyRunner(
 )
 srr = runner.run({"fast": 10, "slow": 30})
 
-srr.book_history.Main.total  # one row per date; columns (book, field): cash, mtm, total
-srr.transaction_history  # ts, total, desc, quantity, price, asset_name, order_label, book
+srr.book_history.Main.total  # one row per date; (book, field): cash, mtm, total, costs
+srr.transaction_history  # ts, total, desc, quantity, price, asset_name, ..., book, type
 statuses = [o.status.name for o in srr.orders_processed]
+srr.turnover  # per book and asset: trades, quantity, notional, costs
 spreads = srr.strategies[0].recorded  # what SMACross passed to self.record
 ```
 
 `run()` copies the books, assets and strategies, so the same runner can run again with
-other parameters. `transaction_history` holds trades and also the interest payments
-(`CashTransaction`), which have no `asset_name`.
+other parameters. `transaction_history` holds trades, transaction costs (`Cost`) and
+interest payments (`CashTransaction`, which have no `asset_name`), and its `type` column
+says which. Only trades have a `quantity`, so filter on `type == "Trade"` or sum
+`quantity` for positions; costs have a `charged_quantity` instead.
 
 ## Orders
 
@@ -160,7 +164,42 @@ Orders fill at the asset's `intraday_traded_price`. For `OHLCAsset` that depends
   from later in the row.
 - `"open"`: `Open`, which is then a required field. Use it for orders placed in
   `on_open`.
-- `"close"`: `Close`. Final statuses are `COMPLETE`,
+- `"close"`: `Close`.
+
+Fills carry no costs unless the asset sets them: `cost` plus a `CostType` in
+`cost_type`, for example `OHLCAsset(name="ACME", cost="5", cost_type=CostType.BPS)`.
+
+- `BPS` (the default type): basis points of the traded notional.
+- `PER_UNIT`: per unit of quantity, so per contract if you trade contracts.
+- `PER_ORDER`: a flat fee.
+
+Each order is charged on its net quantity in each asset, so a `PositionalOrder` that
+closes and reopens pays only on the difference. The cost is booked as a `Cost`
+transaction beside the trades and comes out of cash, so `book_history` and later
+`BOOK_PERCENT` orders see it. `book_history` also has the costs paid so far, and
+`srr.turnover` sums each asset's traded notional and costs. Costs aren't rounded. For anything else, such as tiered
+fees, override `transaction_cost(quantity, price)` (Python engine only). It covers the
+fixed `cost` only.
+
+For a cost that varies by day, such as a bid/ask half spread, put it in a data column
+and name it in `cost_field`, with a `CostType` in `cost_field_type` (default
+`PER_UNIT`, in price units). It is charged on top of `cost`, using the value on the row
+the order executes on, and booked as its own `Cost` row (its `cost_field` column names
+the field). `srr.turnover` then splits `costs` into `fixed_costs` and
+`<field>_costs`. A NaN value raises `MissingPriceError`, and a negative one
+`ValueError`, but only on a row where the order trades the asset. The column is hidden
+in `on_open`, like `Close`. Both engines support it:
+
+```text
+data[("ACME", "HalfSpread")] = (data["ACME", "Ask"] - data["ACME", "Bid"]) / 2
+OHLCAsset(name="ACME", cost="1", cost_type=CostType.BPS, cost_field="HalfSpread")
+```
+
+Costs belong to the asset, so every book that trades it pays them. For a frictionless
+benchmark book next to a costed one, use a second asset with the same `data_label`
+and no costs.
+
+Final statuses are `COMPLETE`,
 `CANCELLED`, `REPLACED` and `MANDATE_FAILED`. An order still `OPEN` at the end of the
 run is in `srr.orders_unprocessed`.
 
@@ -245,9 +284,10 @@ The C++ engine's limits:
 - Mandates raise `ValueError`.
 - Basket orders raise `NotImplementedError`.
 - Asset subclasses that override `intraday_traded_price`, `end_of_day_price`,
-  `data_fields`, `check_and_fix_data` or `round_quantity`, and order subclasses that override
-  `pre_execute_check`, `post_complete` or `apply`, raise `NotImplementedError`. Use the
-  Python engine for those, or `fill_price` for a different fill.
+  `data_fields`, `check_and_fix_data`, `round_quantity` or `transaction_cost`, and order
+  subclasses that override `pre_execute_check`, `post_complete` or `apply`, raise
+  `NotImplementedError`. Use the Python engine for those, or `fill_price` and `cost` for
+  a different fill or cost.
 - A timezone-aware index works. Days are its local dates, and a local time that occurs
   twice (clocks going back) raises `ValueError`.
 - Python strategies get their params unchanged, objects and lists included. Native C++

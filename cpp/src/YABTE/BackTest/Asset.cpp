@@ -2,6 +2,8 @@
 
 #include <arrow/table.h>
 
+#include <cmath>
+#include <format>
 #include <iostream>
 #include <limits>
 #include <regex>
@@ -14,11 +16,21 @@ namespace YABTE::BackTest {
 Asset::Asset(const string &name, const string &denom,
              const optional<int> &price_round_dp,
              const optional<int> &quantity_round_dp,
-             const optional<string> &data_label)
+             const optional<string> &data_label, double cost,
+             CostType cost_type, const optional<string> &cost_field,
+             CostType cost_field_type)
     : name_(name),
       denom_(denom),
       price_round_dp_(price_round_dp),
-      quantity_round_dp_(quantity_round_dp) {
+      quantity_round_dp_(quantity_round_dp),
+      cost_(cost),
+      cost_type_(cost_type),
+      cost_field_(cost_field),
+      cost_field_type_(cost_field_type) {
+    if (cost < 0) {
+        throw std::invalid_argument(
+            std::format("cost must not be negative, not {}", cost));
+    }
     if (data_label.has_value()) {
         this->data_label_ = data_label.value();
     } else {
@@ -28,6 +40,45 @@ Asset::Asset(const string &name, const string &denom,
 
 double Asset::round_quantity(const double &quantity) const {
     return round_dp(quantity, this->quantity_round_dp_);
+}
+
+double Asset::transaction_cost(double quantity, double price) const {
+    return charge_cost(this->cost_, this->cost_type_, quantity, price);
+}
+
+double Asset::data_cost(double quantity, double price, const arrow::Table &data,
+                        int64_t idx, const Timestamp &ts) const {
+    if (!this->cost_field_.has_value() || quantity == 0) return 0.;
+    const auto &field = this->cost_field_.value();
+    auto value = std::numeric_limits<double>::quiet_NaN();
+    auto i = data.schema()->GetFieldIndex(this->data_label_ + "." + field);
+    if (i == -1)
+        i = data.schema()->GetFieldIndex("('" + this->data_label_ + "', '" +
+                                         field + "')");
+    if (i != -1) {
+        auto scalar = data.column(i)->GetScalar(idx);
+        if (scalar.ok() && scalar.ValueOrDie()->is_valid) {
+            auto as_double = scalar.ValueOrDie()->CastTo(arrow::float64());
+            if (as_double.ok())
+                value = std::static_pointer_cast<arrow::DoubleScalar>(
+                            as_double.ValueOrDie())
+                            ->value;
+        }
+    }
+    auto day = std::chrono::floor<std::chrono::seconds>(ts);
+    if (!std::isfinite(value)) {
+        throw MissingPriceError(std::format(
+            "No {} value for {} on {:%Y-%m-%d %H:%M:%S}; drop or fill the "
+            "missing data",
+            field, this->name_, day));
+    }
+    if (value < 0) {
+        throw std::invalid_argument(
+            std::format("{} for {} on {:%Y-%m-%d %H:%M:%S} is negative; costs "
+                        "can't be negative",
+                        field, this->name_, day));
+    }
+    return charge_cost(value, this->cost_field_type_, quantity, price);
 }
 
 vector<string> Asset::_get_fields(const AssetDataFieldInfo &field_info) const {
@@ -147,8 +198,11 @@ OHLCAsset::OHLCAsset(const string &name, const string &denom,
                      const optional<int> &price_round_dp,
                      const optional<int> &quantity_round_dp,
                      const optional<string> &data_label,
-                     FillPrice fill_price)
-    : Asset(name, denom, price_round_dp, quantity_round_dp, data_label),
+                     FillPrice fill_price, double cost, CostType cost_type,
+                     const optional<string> &cost_field,
+                     CostType cost_field_type)
+    : Asset(name, denom, price_round_dp, quantity_round_dp, data_label, cost,
+            cost_type, cost_field, cost_field_type),
       fill_price_(fill_price) {}
 
 shared_ptr<Asset> OHLCAsset::clone() const {

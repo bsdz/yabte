@@ -9,7 +9,7 @@ import pandas as pd
 
 from ._helpers import ensure_decimal
 from .asset import Asset, AssetName, _require_price
-from .transaction import CashTransaction, Trade, Transaction
+from .transaction import CashTransaction, Cost, Trade, Transaction
 
 logger = logging.getLogger(__name__)
 
@@ -61,18 +61,23 @@ class Book:
     interest_round_dp: int = 3
     """Number of decimal places to round interest."""
 
+    costs: Decimal = Decimal(0)
+    """Transaction costs paid so far, a positive amount; see `Asset.cost`."""
+
     _history: List[List[Any]] = field(default_factory=list)
 
     @property
     def history(self) -> pd.DataFrame:
-        """Dataframe with book cash, mtm and total value history."""
+        """Dataframe with book cash, mtm and total value history, and the transaction
+        costs paid so far."""
         return pd.DataFrame(
-            self._history, columns=["ts", "cash", "mtm", "total"]
+            self._history, columns=["ts", "cash", "mtm", "total", "costs"]
         ).set_index("ts")
 
     def __post_init__(self):
         self.cash = ensure_decimal(self.cash)
         self.rate = ensure_decimal(self.rate)
+        self.costs = ensure_decimal(self.costs)
 
     def test_trades(self, trades: Sequence[Trade]) -> bool:
         """Checks whether list of trades will be successful by not failing any
@@ -93,6 +98,9 @@ class Book:
             if isinstance(tran, Trade):
                 self.positions[tran.asset_name] += tran.quantity
                 self.cash += tran.total
+            elif isinstance(tran, Cost):
+                self.cash += tran.total
+                self.costs -= tran.total
             elif isinstance(tran, CashTransaction):
                 self.cash += tran.total
             else:
@@ -133,4 +141,4 @@ class Book:
                 Decimal(0),
             )
         )
-        self._history.append([ts, cash, mtm, cash + mtm])
+        self._history.append([ts, cash, mtm, cash + mtm, float(self.costs)])

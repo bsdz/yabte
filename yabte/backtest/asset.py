@@ -1,12 +1,19 @@
 from dataclasses import dataclass
 from decimal import Decimal
+from enum import Enum
 from typing import Literal, TypeAlias, TypeVar, Union, cast, get_args
 
 import pandas as pd
 
-from ._helpers import round_dp
+from ._helpers import ensure_decimal, ensure_enum, round_dp
 
-__all__ = ["OHLCAsset", "FillPrice", "MissingPriceError", "find_missing_data"]
+__all__ = [
+    "OHLCAsset",
+    "CostType",
+    "FillPrice",
+    "MissingPriceError",
+    "find_missing_data",
+]
 
 
 # TODO: switch to IntFlag since no longer using mypyc
@@ -22,6 +29,39 @@ T = TypeVar("T", bound=Union[pd.Series, pd.DataFrame])
 
 FillPrice: TypeAlias = Literal["midpoint", "open", "close"]
 """Which price `OHLCAsset` orders fill at; see `OHLCAsset.fill_price`."""
+
+
+class CostType(Enum):
+    """How `Asset.cost` is charged on each order's net traded quantity in the asset."""
+
+    BPS = 1
+    """Basis points of the traded notional: `cost` × |quantity × price| / 10,000."""
+
+    PER_UNIT = 2
+    """Per unit of quantity, e.g. per contract: `cost` × |quantity|."""
+
+    PER_ORDER = 3
+    """A flat fee per order in the asset: `cost`."""
+
+
+def charge_cost(
+    rate: Decimal, cost_type: CostType, quantity: Decimal, price: Decimal
+) -> Decimal:
+    """The cost of one order trading a net `quantity` at `price`, at `rate` charged as
+    `cost_type`.
+
+    Both of an asset's costs, the fixed `Asset.cost` and the one read from
+    `Asset.cost_field`, use it.
+    """
+    if rate == 0 or quantity == 0:
+        return Decimal(0)
+    if cost_type == CostType.BPS:
+        return rate * abs(quantity * price) / 10_000
+    if cost_type == CostType.PER_UNIT:
+        return rate * abs(quantity)
+    if cost_type == CostType.PER_ORDER:
+        return rate
+    raise ValueError(f"Unexpected cost type {cost_type}")
 
 
 class MissingPriceError(ValueError):
@@ -65,13 +105,75 @@ class Asset:
     Defaults to `name`
     """
 
+    cost: Decimal = Decimal(0)
+    """Transaction cost, in the unit `cost_type` sets.
+
+    Zero (the default) charges nothing.
+    """
+
+    cost_type: CostType = CostType.BPS
+    """How `cost` is charged; see `CostType`."""
+
+    cost_field: str | None = None
+    """A data field holding a cost that varies by day, such as a half spread.
+
+    Charged on top of `cost`, as `cost_field_type` says, using the value on the row the
+    order executes on. It is masked at the open like `Close`. A missing value raises
+    `MissingPriceError` and a negative one `ValueError`, but only when the order's net
+    quantity in the asset isn't zero.
+    """
+
+    cost_field_type: CostType = CostType.PER_UNIT
+    """How the `cost_field` value is charged; see `CostType`."""
+
     def __post_init__(self):
         if self.data_label is None:
             self.data_label = self.name
+        self.cost = ensure_decimal(self.cost)
+        self.cost_type = ensure_enum(self.cost_type, CostType)
+        self.cost_field_type = ensure_enum(self.cost_field_type, CostType)
+        if self.cost < 0:
+            raise ValueError(f"cost must not be negative, not {self.cost}")
 
     def round_quantity(self, quantity) -> Decimal:
         """Round `quantity`."""
         return round_dp(quantity, self.quantity_round_dp)
+
+    def transaction_cost(self, quantity: Decimal, price: Decimal) -> Decimal:
+        """The fixed cost (`cost`) of one order trading a net `quantity` of this asset
+        at `price`.
+
+        Orders book it as a `Cost` transaction alongside their trades. It isn't rounded,
+        like a trade's total. Override it for other fee schemes (Python engine only);
+        the `cost_field` cost is charged separately, by `data_cost`.
+        """
+        return charge_cost(self.cost, self.cost_type, quantity, price)
+
+    def data_cost(
+        self,
+        quantity: Decimal,
+        price: Decimal,
+        asset_day_data: pd.Series,
+        ts: pd.Timestamp,
+    ) -> Decimal:
+        """The `cost_field` cost of one order trading a net `quantity` at `price`, on
+        the row `asset_day_data` (at `ts`)."""
+        if self.cost_field is None or quantity == 0:
+            return Decimal(0)
+        value = asset_day_data.get(self.cost_field)
+        day = f"{pd.Timestamp(ts):%Y-%m-%d %H:%M:%S}"
+        # via str, so a column value of 0.1 costs 0.1, not the float's binary value
+        if value is None or not (rate := Decimal(str(value))).is_finite():
+            raise MissingPriceError(
+                f"No {self.cost_field} value for {self.name} on {day};"
+                " drop or fill the missing data"
+            )
+        if rate < 0:
+            raise ValueError(
+                f"{self.cost_field} for {self.name} on {day} is negative;"
+                " costs can't be negative"
+            )
+        return charge_cost(rate, self.cost_field_type, quantity, price)
 
     def intraday_traded_price(
         self, asset_day_data: pd.Series, size: Decimal | None = None

@@ -14,7 +14,7 @@ from .book import Book, BookMandate
 from .order import Orders, OrderStatus
 from .row_wrapper import MultiIndexRowWrapper
 from .strategy import Strategy
-from .strategyrunner import StrategyRunnerResult
+from .strategyrunner import StrategyRunnerResult, _check_cost_fields
 
 try:
     from . import _yabte_backtest_lib as yabte_cpp  # type: ignore[attr-defined]
@@ -72,6 +72,7 @@ _ASSET_HOOKS = (
     "data_fields",
     "check_and_fix_data",
     "round_quantity",
+    "transaction_cost",
 )
 _ORDER_HOOKS = (
     "pre_execute_check",
@@ -157,6 +158,7 @@ class CppStrategyRunner:
         if self.mandates or any(book.mandates for book in self.books):
             raise ValueError("Mandates are not supported in C++ mode.")
         _check_cpp_assets(self.assets)
+        _check_cost_fields(data, self.assets)
 
         # Ensure books are initialized if empty
         if not self.books:
@@ -264,6 +266,10 @@ class CppStrategyRunner:
                 asset.quantity_round_dp,
                 asset.data_label or asset.name,
                 fill_price_map[asset.fill_price],
+                float(asset.cost),
+                yabte_cpp.CostType(asset.cost_type.value),
+                asset.cost_field,
+                yabte_cpp.CostType(asset.cost_field_type.value),
             )
             for asset in cast(List[PyOHLCAsset], self.assets)
         ]
@@ -336,7 +342,7 @@ class CppStrategyRunner:
             df = table.to_pandas()
             if self._local_to_aware is not None:
                 df["ts"] = [self._ts(ts.value) for ts in df.ts]
-            return df[["ts", "cash", "mtm", "total"]].values.tolist()
+            return df[["ts", "cash", "mtm", "total", "costs"]].values.tolist()
 
         # Re-construct Python books
         for i, cb in enumerate(cpp_result.books):
@@ -347,11 +353,13 @@ class CppStrategyRunner:
                 cash=cb.cash,
                 rate=cb.rate,
                 interest_round_dp=cb.interest_round_dp,
+                costs=Decimal(str(cb.costs)),
             )
 
             # Transactions
             # Imports
-            from .transaction import CashTransaction, Trade, Transaction
+            from .asset import CostType
+            from .transaction import CashTransaction, Cost, Trade, Transaction
 
             py_trans: List[Transaction] = []
             for t in cb.transactions:
@@ -375,6 +383,19 @@ class CppStrategyRunner:
                         desc=t.desc,
                     )
                     py_trans.append(py_t)
+                elif isinstance(t, yabte_cpp.Cost):
+                    py_trans.append(
+                        Cost(
+                            ts=self._ts(t.ts_ns),
+                            total=Decimal(str(t.total)),
+                            desc=t.desc,
+                            asset_name=t.asset_name,
+                            order_label=t.order_label,
+                            charged_quantity=Decimal(str(t.charged_quantity)),
+                            cost_type=CostType(int(t.cost_type)),
+                            cost_field=t.cost_field,
+                        )
+                    )
                 elif isinstance(t, yabte_cpp.CashTransaction):
                     py_ct = CashTransaction(
                         ts=self._ts(t.ts_ns), total=t.total, desc=t.desc

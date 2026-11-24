@@ -36,7 +36,7 @@ void PositionalOrder::apply(const Timestamp& ts, const DayData& day_data,
         return;
     }
 
-    this->trade_to_target(ts, trade_quantity, trade_price, asset_map);
+    this->trade_to_target(ts, trade_quantity, trade_price, asset_map, day_data, 0);
 }
 
 void PositionalOrder::apply(const Timestamp& ts, const std::shared_ptr<arrow::Table>& data, int64_t idx,
@@ -55,12 +55,13 @@ void PositionalOrder::apply(const Timestamp& ts, const std::shared_ptr<arrow::Ta
         return;
     }
 
-    this->trade_to_target(ts, trade_quantity, trade_price, asset_map);
+    this->trade_to_target(ts, trade_quantity, trade_price, asset_map, *data, idx);
 }
 
 void PositionalOrder::trade_to_target(const Timestamp& ts, double trade_quantity,
                                       double trade_price,
-                                      const AssetMap& asset_map) {
+                                      const AssetMap& asset_map,
+                                      const arrow::Table& data, int64_t idx) {
     auto current_position = this->book_->positions_[this->asset_name_];
     bool needs_trades = false;
 
@@ -97,7 +98,7 @@ void PositionalOrder::trade_to_target(const Timestamp& ts, double trade_quantity
         }
     }
 
-    this->_book_trades(trades, asset_map);
+    this->_book_trades(trades, asset_map, data, idx);
 }
 
 shared_ptr<Order> PositionalOrder::clone() const {
